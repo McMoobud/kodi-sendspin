@@ -3,7 +3,7 @@
     <requires>
         <import addon="xbmc.python" version="3.0.1"/>
     </requires>
-    <extension point="xbmc.service" library="service.py" start="login"/>
+    <extension point="xbmc.service" library="service.py"/>
     <extension point="xbmc.addon.metadata">
         <summary lang="en_GB">Turn Kodi into a Music Assistant (Sendspin) speaker</summary>
         <description lang="en_GB">Registers this Kodi box as a Sendspin player with Music Assistant. Music Assistant can then stream synchronised multi-room audio to Kodi, with title, artist and artwork shown on Kodi's Now Playing screen. Pure Python, no extra dependencies - works on Android / Fire TV, LibreELEC, Windows, macOS and Linux.</description>
@@ -13,6 +13,7 @@
         <source>https://github.com/Mcmoobud/kodi-sendspin</source>
         <assets>
             <icon>resources/icon.png</icon>
+            <fanart>resources/fanart.jpg</fanart>
         </assets>
         <news>0.1.0 - first preview: Sendspin player role, clock-synced playback, metadata on Now Playing, volume/mute from Music Assistant, auto-discovery.</news>
     </extension>

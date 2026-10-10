@@ -15,7 +15,7 @@ import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "fakekodi"))
-sys.path.insert(0, os.path.join(HERE, "..", "service.sendspin"))
+sys.path.insert(0, os.path.join(HERE, "..", "service.sendspin", "resources", "lib"))
 
 import xbmc  # noqa: E402  (fake)
 
@@ -48,7 +48,7 @@ os.makedirs("/tmp/fakekodi-profile", exist_ok=True)
 with open("/tmp/fakekodi-profile/client_id", "w") as f:
     f.write("kodi-sendspin-dev")
 
-import service  # noqa: E402
+import service_main as service  # noqa: E402
 
 T0 = time.time()
 threading.Thread(target=service.run, daemon=True).start()

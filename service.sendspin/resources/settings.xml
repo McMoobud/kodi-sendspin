@@ -34,9 +34,14 @@
         </category>
         <category id="sync" label="30010">
             <group id="1">
+                <setting id="auto_sync" type="boolean" label="30014" help="30114">
+                    <level>0</level>
+                    <default>true</default>
+                    <control type="toggle"/>
+                </setting>
                 <setting id="lead_ms" type="integer" label="30011" help="30111">
-                    <level>1</level>
-                    <default>800</default>
+                    <level>2</level>
+                    <default>3000</default>
                     <constraints><minimum>200</minimum><step>50</step><maximum>5000</maximum></constraints>
                     <control type="slider" format="integer"><popup>false</popup></control>
                 </setting>

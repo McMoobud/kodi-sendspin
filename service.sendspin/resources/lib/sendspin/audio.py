@@ -120,6 +120,7 @@ class AudioPipeline:
         self.muted = False
         self._cursor = None  # local µs up to which audio has been written
         self.last_block_start = None  # local play time of the last block returned
+        self._adjust_bytes = 0  # >0: drop this much output (Kodi late); <0: insert silence (early)
         self.stats = {"received": 0, "written": 0, "dropped_late": 0, "silence_us": 0, "trimmed": 0}
 
     # -- control (protocol thread) ----------------------------------------
@@ -136,6 +137,7 @@ class AudioPipeline:
             if not keep:
                 self.fmt = fmt
                 self._cursor = None
+                self._adjust_bytes = 0
                 self.generation += 1
             self.active = True
             self._cond.notify_all()
@@ -180,7 +182,35 @@ class AudioPipeline:
             return None
         return local + self.static_delay_us
 
+    def adjust_output(self, delta_us):
+        """Shift what the output device hears: +delta = it is late, drop audio; - = insert silence."""
+        with self._cond:
+            if self.fmt is None:
+                return
+            n = self.fmt.bytes_for_us(abs(int(delta_us)))
+            self._adjust_bytes += n if delta_us > 0 else -n
+            log.info("sync correction: %s %d ms", "dropping" if delta_us > 0 else "inserting silence",
+                     abs(delta_us) // 1000)
+
+    def _apply_adjust(self, block):
+        if not self._adjust_bytes or not block:
+            return block
+        if self._adjust_bytes < 0:  # insert silence before the block
+            pad = -self._adjust_bytes
+            self._adjust_bytes = 0
+            return bytes(pad) + block
+        drop = min(self._adjust_bytes, len(block))
+        self._adjust_bytes -= drop
+        return block[drop:]
+
     def next_block(self, generation, timeout=0.5):
+        block = self._next_block(generation, timeout)
+        if block:
+            with self._cond:
+                return self._apply_adjust(block)
+        return block
+
+    def _next_block(self, generation, timeout=0.5):
         """Block until audio for ``generation`` is due; return PCM bytes, b"" or None.
 
         ``None`` means the generation is over (stream ended / cleared / format
@@ -268,8 +298,11 @@ class Broadcaster:
 
     RING_SECONDS = 4
 
-    def __init__(self, pipeline):
+    def __init__(self, pipeline, timeline_dir=None):
         self.pipeline = pipeline
+        # Debug aid: dump released audio + its intended play times for sync measurement
+        self.timeline_dir = timeline_dir
+        self._tl = None
         self._cond = threading.Condition()
         self._ring = deque()  # (start_offset, bytes, local_play_time_us)
         self._end = 0  # absolute byte offset of the end of released audio
@@ -277,6 +310,8 @@ class Broadcaster:
         self._fmt = None
         self._closed = True
         self.active_readers = 0
+        self.index = deque()  # (byte_offset, local_play_time_us) for released blocks
+        self.reader_starts = []  # byte offsets where each HTTP reader started (newest last)
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._pump, name="sendspin-pump", daemon=True)
 
@@ -301,12 +336,15 @@ class Broadcaster:
                 continue
             with self._cond:
                 self._ring.clear()
+                self.index.clear()
+                self.reader_starts = []
                 self._end = 0
                 self._generation = gen
                 self._fmt = self.pipeline.fmt
                 self._closed = False
                 self._cond.notify_all()
             ring_limit = int(self._fmt.sample_rate * self._fmt.frame_bytes * self.RING_SECONDS)
+            self._open_timeline(gen)
             while not self._stop.is_set():
                 block = self.pipeline.next_block(gen)
                 if block is None:
@@ -314,7 +352,12 @@ class Broadcaster:
                 if not block:
                     continue
                 t_start = self.pipeline.last_block_start
+                self._log_timeline(t_start, block)
                 with self._cond:
+                    if t_start is not None:
+                        self.index.append((self._end, t_start))
+                        while len(self.index) > 4000:
+                            self.index.popleft()
                     self._ring.append((self._end, block, t_start))
                     self._end += len(block)
                     while self._ring and self._end - self._ring[0][0] > ring_limit:
@@ -325,6 +368,27 @@ class Broadcaster:
                     self._closed = True
                     self._cond.notify_all()
             log.debug("pump: generation %d closed (end=%d bytes)", gen, self._end)
+
+    def _open_timeline(self, gen):
+        if not self.timeline_dir:
+            return
+        import json
+        import os
+        base = os.path.join(self.timeline_dir, "timeline-%d" % gen)
+        self._tl = {"raw": open(base + ".raw", "wb"), "idx": open(base + ".jsonl", "w"), "bytes": 0,
+                    "limit": self._fmt.sample_rate * self._fmt.frame_bytes * 90}
+        self._tl["idx"].write(json.dumps({"rate": self._fmt.sample_rate, "channels": self._fmt.channels}) + "\n")
+
+    def _log_timeline(self, t_start, block):
+        tl = self._tl
+        if not tl or tl["bytes"] > tl["limit"]:
+            return
+        tl["idx"].write("%d %d %d\n" % (tl["bytes"], len(block), t_start or 0))
+        tl["raw"].write(block)
+        tl["bytes"] += len(block)
+        if tl["bytes"] > tl["limit"]:
+            tl["raw"].close()
+            tl["idx"].close()
 
     def _live_position(self):
         """Byte offset of the audio that should be heard *now* (so each reader gets the full lead)."""
@@ -349,6 +413,20 @@ class Broadcaster:
             with self._cond:
                 self.active_readers -= 1
 
+    def play_time_of(self, offset):
+        """Intended local play time (µs) of byte ``offset`` of the current generation."""
+        with self._cond:
+            fmt = self._fmt
+            best = None
+            for off, t in self.index:
+                if off <= offset:
+                    best = (off, t)
+                else:
+                    break
+            if best is None or fmt is None:
+                return None
+            return best[1] + fmt.duration_us(offset - best[0])
+
     def wait_readers_closed(self, timeout):
         """Wait until no HTTP reader is connected (returns True if none left)."""
         deadline = time.monotonic() + timeout
@@ -366,6 +444,7 @@ class Broadcaster:
                     return
                 self._cond.wait(0.1)
             pos = self._live_position()
+            self.reader_starts.append(pos)
         while True:
             with self._cond:
                 while self._end <= pos and not self._closed and self._generation == generation:
@@ -439,9 +518,9 @@ class _Handler(BaseHTTPRequestHandler):
 class WavStreamServer:
     """Serves the pipeline as ``http://127.0.0.1:<port>/stream/<generation>.wav``."""
 
-    def __init__(self, pipeline, host="127.0.0.1", port=0):
+    def __init__(self, pipeline, host="127.0.0.1", port=0, timeline_dir=None):
         self.pipeline = pipeline
-        self.broadcaster = Broadcaster(pipeline)
+        self.broadcaster = Broadcaster(pipeline, timeline_dir)
         self._httpd = ThreadingHTTPServer((host, port), _Handler)
         self._httpd.daemon_threads = True
         self._httpd.pipeline = pipeline

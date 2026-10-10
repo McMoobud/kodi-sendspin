@@ -16,7 +16,7 @@ import xbmcvfs
 from sendspin import __version__
 from sendspin.audio import AudioPipeline, WavStreamServer
 from sendspin.client import Listener, SendspinClient
-from sendspin.clock import ClockSync
+from sendspin.clock import ClockSync, now_us
 from sendspin.discovery import discover
 
 ADDON = xbmcaddon.Addon()
@@ -137,10 +137,11 @@ class Bridge(Listener):
         self.clock = ClockSync()
         self.pipeline = AudioPipeline(
             self.clock,
-            lead_ms=_setting_int("lead_ms", 800),
+            lead_ms=_setting_int("lead_ms", 3000),
             static_delay_ms=_setting_int("static_delay_ms", 0),
         )
-        self.http = WavStreamServer(self.pipeline)
+        timeline = os.environ.get("SENDSPIN_TIMELINE_DIR")  # sync measurement (dev only)
+        self.http = WavStreamServer(self.pipeline, timeline_dir=timeline)
         self.player = SendspinPlayer(self)
         self.client = None
         self.url_prefix = None
@@ -151,6 +152,7 @@ class Bridge(Listener):
         self._restarts = []
         self._output_running = False
         self._last_play_call = 0.0
+        self._sync_gen, self._sync_since, self._sync_samples, self._sync_last = None, 0.0, [], 0.0
         self._queue = queue.Queue()
         self._worker_thread = threading.Thread(target=self._worker, name="sendspin-kodi", daemon=True)
 
@@ -353,11 +355,59 @@ class Bridge(Listener):
         log.warning("Kodi ended our live stream unexpectedly - restarting playback")
         threading.Timer(0.5, self._post, args=(self._play_generation, self.pipeline.generation)).start()
 
+    def output_error_ms(self):
+        """How late (ms, +) Kodi's output is vs the Sendspin timeline, from Player.getTime()."""
+        b = self.http.broadcaster
+        if not b.reader_starts or self.pipeline.fmt is None:
+            return None
+        try:
+            pos_s = self.player.getTime()
+        except RuntimeError:
+            return None
+        now = now_us()
+        fmt = self.pipeline.fmt
+        offset = b.reader_starts[-1] + fmt.bytes_for_us(int(pos_s * 1_000_000))
+        intended = b.play_time_of(offset)
+        if intended is None:
+            return None
+        return (now - intended) / 1000.0
+
+    SYNC_SETTLE_S = 3.0  # let Kodi's player settle after (re)starting
+    SYNC_THRESHOLD_MS = 25.0
+    SYNC_INTERVAL_S = 5.0
+
+    def _auto_sync(self):
+        """Measure Kodi's output vs the Sendspin timeline and nudge it into place."""
+        if not _setting_bool("auto_sync", True):
+            return
+        gen = self.pipeline.generation
+        now = time.monotonic()
+        if self._sync_gen != gen:
+            self._sync_gen, self._sync_since, self._sync_samples, self._sync_last = gen, now, [], 0.0
+            return
+        if now - self._sync_since < self.SYNC_SETTLE_S:
+            return
+        err = self.output_error_ms()
+        if err is None:
+            return
+        self._sync_samples = (self._sync_samples + [err])[-3:]
+        log.debug("sync: Kodi output is %+.0f ms vs timeline", err)
+        if len(self._sync_samples) < 3 or now - self._sync_last < self.SYNC_INTERVAL_S:
+            return
+        median = sorted(self._sync_samples)[1]
+        if abs(median) >= self.SYNC_THRESHOLD_MS:
+            self.pipeline.adjust_output(int(median * 1000))
+            self._sync_last = now
+            self._sync_samples = []
+            self._sync_since = now  # wait for Kodi to settle again before re-measuring
+
     def tick(self):
         """Called ~1/s from the service loop."""
         if self.client is None:
             return
         ours = self.is_our_item()
+        if ours:
+            self._auto_sync()
         self._output_running = ours
         busy = _setting_bool("yield_to_video", True) and self.other_media_playing()
         self.client.set_available(not busy)

@@ -35,15 +35,23 @@ msgid "Sync"
 msgstr ""
 
 msgctxt "#30011"
-msgid "Kodi output latency (ms)"
+msgid "Release audio ahead by (ms)"
 msgstr ""
 
 msgctxt "#30012"
-msgid "Extra delay / sync trim (ms)"
+msgid "Extra delay / sync trim (ms) - e.g. TV or AV receiver latency"
 msgstr ""
 
 msgctxt "#30013"
 msgid "Debug logging"
+msgstr ""
+
+msgctxt "#30014"
+msgid "Automatic sync"
+msgstr ""
+
+msgctxt "#30114"
+msgid "Measure Kodi's own playback delay and correct it automatically so this player stays in sync with other Music Assistant speakers."
 msgstr ""
 
 msgctxt "#30101"
@@ -67,7 +75,7 @@ msgid "Show a toast when connecting and when music starts."
 msgstr ""
 
 msgctxt "#30111"
-msgid "How far ahead audio is handed to Kodi's player. Higher = more robust, but each start/skip takes longer."
+msgid "How far ahead audio is handed to Kodi's player. Must exceed Kodi's own buffering (about 2.5 s). Higher = more robust, but starts and skips take longer."
 msgstr ""
 
 msgctxt "#30112"

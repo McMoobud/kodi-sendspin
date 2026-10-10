@@ -37,7 +37,11 @@ class Listener:
     def on_disconnected(self):
         pass
 
-    def on_stream_start(self, fmt, generation):
+    def output_running(self):
+        """True if the output (Kodi) is currently playing our stream."""
+        return False
+
+    def on_stream_start(self, fmt, generation, continuous=False):
         pass
 
     def on_stream_clear(self, generation):
@@ -208,6 +212,27 @@ class SendspinClient:
             if self._stop.wait(d):
                 return
 
+    def _watchdog(self, ws):
+        """Diagnostics: dump all thread stacks if the reader stops receiving."""
+        import sys
+        import traceback
+        dumped = False
+        while not self._stop.is_set() and not ws.closed:
+            if self._stop.wait(2):
+                return
+            idle = (now_us() - self._last_rx) / 1e6
+            if idle > 8 and not dumped:
+                dumped = True
+                frames = sys._current_frames()
+                lines = ["reader idle for %.1fs - thread dump:" % idle]
+                for th in threading.enumerate():
+                    fr = frames.get(th.ident)
+                    if fr is not None:
+                        lines.append("--- %s\n%s" % (th.name, "".join(traceback.format_stack(fr)[-6:])))
+                log.warning("\n".join(lines))
+            elif idle < 3:
+                dumped = False
+
     def _session(self):
         ws = WebSocket(self.url)
         ws.connect()
@@ -215,9 +240,12 @@ class SendspinClient:
         log.info("connected to %s", self.url)
         self._send(self._hello())
         threading.Thread(target=self._timesync_loop, args=(ws,), name="sendspin-time", daemon=True).start()
+        self._last_rx = now_us()
+        threading.Thread(target=self._watchdog, args=(ws,), name="sendspin-watchdog", daemon=True).start()
         while not self._stop.is_set():
             op, data = ws.recv()
             rx = now_us()
+            self._last_rx = rx
             if op == OP_BINARY:
                 self._on_binary(data)
             elif op == OP_TEXT:
@@ -248,8 +276,8 @@ class SendspinClient:
                     log.error("unsupported codec %s", player.get("codec"))
                     return
                 fmt = AudioFormat(player["sample_rate"], player["channels"], player["bit_depth"])
-                gen = self.pipeline.start(fmt)
-                self.listener.on_stream_start(fmt, gen)
+                gen, continuous = self.pipeline.start(fmt, continuous=self.listener.output_running())
+                self.listener.on_stream_start(fmt, gen, continuous)
         elif typ == "stream/clear":
             roles = payload.get("roles")
             if roles is None or "player" in roles:

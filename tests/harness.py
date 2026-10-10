@@ -40,17 +40,21 @@ class FakeKodi(Listener):
         self.pcm = bytearray()
         self.header = None
         self.events = []
+        self.running = False
 
     def on_connected(self, server_name):
         self.events.append(("connected", server_name))
 
-    def on_stream_start(self, fmt, generation):
-        self.events.append(("stream_start", repr(fmt), generation))
-        threading.Thread(target=self._consume, args=(generation,), daemon=True).start()
+    def output_running(self):
+        return self.running
+
+    def on_stream_start(self, fmt, generation, continuous=False):
+        self.events.append(("stream_start", repr(fmt), generation, continuous))
+        if not continuous:
+            threading.Thread(target=self._consume, args=(generation,), daemon=True).start()
 
     def on_stream_clear(self, generation):
         self.events.append(("stream_clear", generation))
-        threading.Thread(target=self._consume, args=(generation,), daemon=True).start()
 
     def on_stream_end(self):
         self.events.append(("stream_end",))
@@ -66,6 +70,7 @@ class FakeKodi(Listener):
         log.info("fake kodi GET %s", url)
         try:
             with urllib.request.urlopen(url, timeout=10) as r:
+                self.running = True
                 self.header = r.read(44)
                 while True:
                     b = r.read(4096)
@@ -76,6 +81,7 @@ class FakeKodi(Listener):
                         self.pcm += b
         except Exception as exc:  # noqa: BLE001
             log.info("fake kodi stream closed: %s", exc)
+        self.running = False
 
 
 def rms16(pcm):

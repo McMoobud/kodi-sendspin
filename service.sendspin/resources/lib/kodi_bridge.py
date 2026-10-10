@@ -2,6 +2,7 @@
 
 import logging
 import os
+import queue
 import socket
 import threading
 import time
@@ -148,9 +149,14 @@ class Bridge(Listener):
         self._lock = threading.Lock()
         self.metadata = {}
         self._restarts = []
+        self._output_running = False
+        self._last_play_call = 0.0
+        self._queue = queue.Queue()
+        self._worker_thread = threading.Thread(target=self._worker, name="sendspin-kodi", daemon=True)
 
     # -- lifecycle ---------------------------------------------------------
     def start(self, server_url):
+        self._worker_thread.start()
         self.http.start()
         self.url_prefix = "http://127.0.0.1:%d/stream/" % self.http.port
         self.client = SendspinClient(
@@ -165,6 +171,7 @@ class Bridge(Listener):
         if self.client:
             self.client.stop()
         self._stop_kodi_player()
+        self._queue.put(None)
         self.http.stop()
 
     # -- helpers -----------------------------------------------------------
@@ -212,60 +219,119 @@ class Bridge(Listener):
             log.info("Kodi is busy with other media - not taking over playback")
             return
         url = self.http.url(generation)
+        # Kodi's play()/stop() block while PAPlayer closes the previous stream; closing it
+        # needs our Python HTTP thread, so never call them while a reader is still open.
+        if not self.http.broadcaster.wait_readers_closed(3.0):
+            log.warning("previous stream still has readers - starting anyway")
+        if self.pipeline.generation != generation or not self.pipeline.active:
+            log.info("generation %d is stale - not starting Kodi", generation)
+            return
         with self._lock:
             self._current_url = url
             self._expect_stop = True  # play() stops the previous item first
+            self._last_play_call = time.monotonic()
         log.info("Kodi play %s", url)
         self.player.play(url, self._listitem(url))
+        self._output_running = True
 
     def _stop_kodi_player(self):
-        if self.is_our_item():
+        try:
+            playing = self.player.isPlaying()
+            current = self.player.getPlayingFile() if playing else ""
+        except RuntimeError:
+            playing, current = False, ""
+        ours = current.startswith(self.url_prefix or "\x00")
+        # Kodi reports an empty file while its HTTP reader is reconnecting - still ours.
+        if playing and (ours or (current == "" and self._current_url)):
+            log.info("stopping Kodi playback (%s)", current or "reconnecting")
             with self._lock:
                 self._expect_stop = True
             self.player.stop()
 
     # -- Sendspin events (client thread) ------------------------------------
+    # Never call Kodi from the client thread: Player.play() blocks while Kodi opens
+    # our HTTP stream, which would stall the WebSocket reader and make the server
+    # drop the connection. Events are queued to the Kodi worker thread instead.
+    def output_running(self):
+        return self._output_running
+
     def on_connected(self, server_name):
-        notify("Connected to %s" % server_name)
+        self._post(notify, "Connected to %s" % server_name)
 
     def on_disconnected(self):
-        self._stop_kodi_player()
+        self._post(self._stop_kodi_player)
 
-    def on_stream_start(self, fmt, generation):
-        self._play_generation(generation)
+    def on_stream_start(self, fmt, generation, continuous=False):
+        if continuous:
+            log.info("continuing Kodi playback across stream start (generation %d)", generation)
+            self._post(self._refresh_infotag)
+        else:
+            self._post(self._play_generation, generation)
 
     def on_stream_clear(self, generation):
-        # Seek/skip: Kodi's own buffer holds stale audio, so restart the item.
-        if self.is_our_item() or self._current_url:
-            self._play_generation(generation)
+        pass  # same Kodi stream continues; queued audio was dropped by the pipeline
 
     def on_stream_end(self):
-        self._stop_kodi_player()
-        with self._lock:
-            self._current_url = None
+        # The HTTP stream is closed by the pump, so Kodi reaches end-of-stream and stops on
+        # its own. Only fall back to Player.stop() once all readers are gone (no deadlock).
+        def _end():
+            with self._lock:
+                self._current_url = None
+                self._expect_stop = True
+            if self.http.broadcaster.wait_readers_closed(5.0):
+                time.sleep(0.5)
+            if self.pipeline.active:
+                return  # a new stream already started
+            self._stop_kodi_player()
+        self._post(_end)
 
     def on_metadata(self, metadata):
         self.metadata = metadata
+        self._post(self._refresh_infotag)
+
+    def on_volume(self, volume, muted):
+        log.info("volume=%s muted=%s", volume, muted)
+
+    # -- Kodi worker -------------------------------------------------------------
+    def _post(self, fn, *args):
+        self._queue.put((fn, args))
+
+    def _worker(self):
+        while True:
+            item = self._queue.get()
+            if item is None:
+                return
+            fn, args = item
+            try:
+                fn(*args)
+            except Exception:  # noqa: BLE001
+                log.exception("Kodi worker error in %s", getattr(fn, "__name__", fn))
+
+    def _refresh_infotag(self):
         if self.is_our_item():
             try:
                 self.player.updateInfoTag(self._listitem(self.player.getPlayingFile()))
             except (RuntimeError, AttributeError) as exc:  # updateInfoTag needs Kodi 20+
                 log.debug("updateInfoTag failed: %s", exc)
 
-    def on_volume(self, volume, muted):
-        log.info("volume=%s muted=%s", volume, muted)
-
     # -- Kodi events ----------------------------------------------------------
     def user_action(self, command):
         if self.client:
             self.client.send_controller(command)
 
-    def on_kodi_stopped(self):
+    def _stop_is_ours(self):
         with self._lock:
-            expected = self._expect_stop
+            expected = self._expect_stop or (time.monotonic() - self._last_play_call) < 4.0
             self._expect_stop = False
+        return expected
+
+    def on_kodi_stopped(self):
+        expected = self._stop_is_ours()
+        was_running = self._output_running
+        self._output_running = False
+        with self._lock:
             ours = self._current_url is not None
-        if ours and not expected and self.pipeline.active:
+        if ours and was_running and not expected and self.pipeline.active:
             log.info("user stopped playback in Kodi - asking Music Assistant to stop")
             self.user_action("stop")
             with self._lock:
@@ -273,8 +339,9 @@ class Bridge(Listener):
 
     def on_kodi_ended(self):
         """Kodi hit end-of-stream / an error on our live stream: restart, don't stop MA."""
+        self._stop_is_ours()
+        self._output_running = False
         with self._lock:
-            self._expect_stop = False
             ours = self._current_url is not None
         if not (ours and self.pipeline.active):
             return
@@ -284,19 +351,16 @@ class Bridge(Listener):
             log.error("Kodi keeps ending the stream - giving up until the next stream")
             return
         log.warning("Kodi ended our live stream unexpectedly - restarting playback")
-        threading.Timer(0.5, self._play_generation, args=(self.pipeline.generation,)).start()
+        threading.Timer(0.5, self._post, args=(self._play_generation, self.pipeline.generation)).start()
 
     def tick(self):
         """Called ~1/s from the service loop."""
         if self.client is None:
             return
+        ours = self.is_our_item()
+        self._output_running = ours
         busy = _setting_bool("yield_to_video", True) and self.other_media_playing()
         self.client.set_available(not busy)
-        # play() fires onPlayBackStopped for the previous item asynchronously; once our
-        # item is up, later stops are user actions again.
-        if self.is_our_item():
-            with self._lock:
-                self._expect_stop = False
 
 
 def resolve_server_url():

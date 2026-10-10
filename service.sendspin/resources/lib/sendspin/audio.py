@@ -123,23 +123,30 @@ class AudioPipeline:
         self.stats = {"received": 0, "written": 0, "dropped_late": 0, "silence_us": 0, "trimmed": 0}
 
     # -- control (protocol thread) ----------------------------------------
-    def start(self, fmt):
+    def start(self, fmt, continuous=False):
+        """New stream. ``continuous``: same format and Kodi is still playing our URL,
+        so keep the HTTP stream (generation) and timeline cursor - only drop queued audio.
+        Music Assistant schedules new audio >= required_lead_time ahead, which is more
+        than our release lead, so the new stream lands after what Kodi already holds.
+        """
         with self._cond:
-            self.fmt = fmt
+            keep = continuous and self.active and self.fmt == fmt and self._cursor is not None \
+                and self._cursor > now_us()
             self._chunks = deque()
-            self._cursor = None
-            self.generation += 1
+            if not keep:
+                self.fmt = fmt
+                self._cursor = None
+                self.generation += 1
             self.active = True
             self._cond.notify_all()
-        log.info("stream start %r (generation %d)", fmt, self.generation)
-        return self.generation
+        log.info("stream start %r (generation %d, %s)", fmt, self.generation,
+                 "continuous" if keep else "new")
+        return self.generation, keep
 
     def clear(self):
-        """Drop queued audio (seek / skip). Kodi's own buffer is flushed by the caller."""
+        """Seek / skip: drop queued audio but keep Kodi's stream and the timeline."""
         with self._cond:
             self._chunks = deque()
-            self._cursor = None
-            self.generation += 1
             self._cond.notify_all()
         log.info("stream clear (generation %d)", self.generation)
         return self.generation
@@ -269,6 +276,7 @@ class Broadcaster:
         self._generation = None
         self._fmt = None
         self._closed = True
+        self.active_readers = 0
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._pump, name="sendspin-pump", daemon=True)
 
@@ -316,6 +324,7 @@ class Broadcaster:
                 if self._generation == gen:
                     self._closed = True
                     self._cond.notify_all()
+            log.debug("pump: generation %d closed (end=%d bytes)", gen, self._end)
 
     def _live_position(self):
         """Byte offset of the audio that should be heard *now* (so each reader gets the full lead)."""
@@ -333,6 +342,23 @@ class Broadcaster:
     def reader(self, generation):
         """Generator of byte blocks for one HTTP client; starts at the live edge."""
         with self._cond:
+            self.active_readers += 1
+        try:
+            yield from self._reader(generation)
+        finally:
+            with self._cond:
+                self.active_readers -= 1
+
+    def wait_readers_closed(self, timeout):
+        """Wait until no HTTP reader is connected (returns True if none left)."""
+        deadline = time.monotonic() + timeout
+        with self._cond:
+            while self.active_readers > 0 and time.monotonic() < deadline:
+                self._cond.wait(0.05)
+            return self.active_readers == 0
+
+    def _reader(self, generation):
+        with self._cond:
             deadline = time.monotonic() + 5
             while self._generation != generation or self._closed:
                 if self._stop.is_set() or time.monotonic() > deadline or (
@@ -345,6 +371,7 @@ class Broadcaster:
                 while self._end <= pos and not self._closed and self._generation == generation:
                     self._cond.wait(0.5)
                 if self._generation != generation or (self._closed and self._end <= pos):
+                    log.debug("reader for generation %d done at %d bytes", generation, pos)
                     return
                 if self._ring and pos < self._ring[0][0]:
                     pos = self._ring[0][0]  # reader fell too far behind: skip ahead
@@ -389,8 +416,11 @@ class _Handler(BaseHTTPRequestHandler):
     def do_GET(self):  # noqa: N802
         pipeline = self.server.pipeline
         generation = self._parse_generation()
-        if generation is None or generation != pipeline.generation or pipeline.fmt is None:
-            self.send_error(404)
+        if generation is None or generation != pipeline.generation or pipeline.fmt is None or not pipeline.active:
+            try:
+                self.send_error(404)
+            except OSError:
+                pass
             return
         self._headers()
         log.debug("http reader %s for generation %d (range=%s)", self.client_address, generation,
@@ -403,6 +433,7 @@ class _Handler(BaseHTTPRequestHandler):
                 self.wfile.write(block)
         except (BrokenPipeError, ConnectionResetError, socket.timeout, OSError):
             log.debug("http reader went away")
+        log.debug("http handler for generation %d finished", generation)
 
 
 class WavStreamServer:

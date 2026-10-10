@@ -1,0 +1,91 @@
+# Kodi Media Center language file
+# Addon Name: Sendspin Player
+# Addon id: service.sendspin
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: en_GB\n"
+
+msgctxt "#30000"
+msgid "General"
+msgstr ""
+
+msgctxt "#30001"
+msgid "Enable Sendspin player"
+msgstr ""
+
+msgctxt "#30002"
+msgid "Player name (blank = Kodi device name)"
+msgstr ""
+
+msgctxt "#30003"
+msgid "Server URL (blank = auto-discover)"
+msgstr ""
+
+msgctxt "#30004"
+msgid "Step aside while Kodi plays video"
+msgstr ""
+
+msgctxt "#30005"
+msgid "Show notifications"
+msgstr ""
+
+msgctxt "#30010"
+msgid "Sync"
+msgstr ""
+
+msgctxt "#30011"
+msgid "Kodi output latency (ms)"
+msgstr ""
+
+msgctxt "#30012"
+msgid "Extra delay / sync trim (ms)"
+msgstr ""
+
+msgctxt "#30013"
+msgid "Debug logging"
+msgstr ""
+
+msgctxt "#30101"
+msgid "Register this Kodi as a Music Assistant speaker."
+msgstr ""
+
+msgctxt "#30102"
+msgid "Name shown in Music Assistant. Leave blank to use Kodi's device name."
+msgstr ""
+
+msgctxt "#30103"
+msgid "e.g. ws://192.168.1.10:8927/sendspin. Leave blank to find Music Assistant automatically (mDNS)."
+msgstr ""
+
+msgctxt "#30104"
+msgid "While Kodi is playing a video, report this player as unavailable so music never interrupts a film."
+msgstr ""
+
+msgctxt "#30105"
+msgid "Show a toast when connecting and when music starts."
+msgstr ""
+
+msgctxt "#30111"
+msgid "How far ahead audio is handed to Kodi's player. Higher = more robust, but each start/skip takes longer."
+msgstr ""
+
+msgctxt "#30112"
+msgid "Positive values delay this player. Use to line Kodi up with other speakers in a group."
+msgstr ""
+
+msgctxt "#30113"
+msgid "Write detailed Sendspin logs to kodi.log."
+msgstr ""
+
+msgctxt "#30200"
+msgid "Connected to %s"
+msgstr ""
+
+msgctxt "#30201"
+msgid "No Music Assistant found - set the server URL in settings"
+msgstr ""
+
+msgctxt "#30202"
+msgid "Disconnected from Music Assistant"
+msgstr ""

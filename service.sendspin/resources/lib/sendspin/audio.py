@@ -19,6 +19,7 @@ import socket
 import struct
 import sys
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from .clock import now_us
@@ -118,7 +119,7 @@ class AudioPipeline:
         self.volume = 100
         self.muted = False
         self._cursor = None  # local µs up to which audio has been written
-        self.reader = 0  # only the newest HTTP reader receives audio
+        self.last_block_start = None  # local play time of the last block returned
         self.stats = {"received": 0, "written": 0, "dropped_late": 0, "silence_us": 0, "trimmed": 0}
 
     # -- control (protocol thread) ----------------------------------------
@@ -172,13 +173,7 @@ class AudioPipeline:
             return None
         return local + self.static_delay_us
 
-    def claim_reader(self):
-        with self._cond:
-            self.reader += 1
-            self._cond.notify_all()
-            return self.reader
-
-    def next_block(self, generation, reader=None, timeout=0.5):
+    def next_block(self, generation, timeout=0.5):
         """Block until audio for ``generation`` is due; return PCM bytes, b"" or None.
 
         ``None`` means the generation is over (stream ended / cleared / format
@@ -188,8 +183,6 @@ class AudioPipeline:
             while True:
                 if generation != self.generation or not self.active:
                     return None
-                if reader is not None and reader != self.reader:
-                    return None  # a newer HTTP connection took over
                 fmt = self.fmt
                 now = now_us()
                 release_horizon = now + self.lead_us
@@ -230,11 +223,13 @@ class AudioPipeline:
         if n <= 0:
             return b""
         self.stats["silence_us"] += fmt.duration_us(n)
+        self.last_block_start = self._cursor
         self._cursor += fmt.duration_us(n)
         return bytes(n)
 
     def _emit(self, fmt, start, dur, pcm):
         out = []
+        self.last_block_start = start if self._cursor is None else min(start, self._cursor)
         if self._cursor is not None:
             if start + dur <= self._cursor:  # fully covered by silence fill
                 self.stats["trimmed"] += 1
@@ -256,6 +251,114 @@ class AudioPipeline:
         return b"".join(out)
 
 
+class Broadcaster:
+    """Pulls time-aligned audio from the pipeline and fans it out to HTTP readers.
+
+    Kodi opens the URL more than once (probe, tag reader, player), so every
+    reader gets its own cursor into a short ring of *released* audio. A single
+    pump thread owns the timing; readers never consume each other's data.
+    """
+
+    RING_SECONDS = 4
+
+    def __init__(self, pipeline):
+        self.pipeline = pipeline
+        self._cond = threading.Condition()
+        self._ring = deque()  # (start_offset, bytes, local_play_time_us)
+        self._end = 0  # absolute byte offset of the end of released audio
+        self._generation = None
+        self._fmt = None
+        self._closed = True
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._pump, name="sendspin-pump", daemon=True)
+
+    def start(self):
+        self._thread.start()
+
+    def stop(self):
+        self._stop.set()
+        with self._cond:
+            self._closed = True
+            self._cond.notify_all()
+
+    def _pump(self):
+        while not self._stop.is_set():
+            gen = self.pipeline.generation
+            if not self.pipeline.active or self.pipeline.fmt is None:
+                with self._cond:
+                    if not self._closed:
+                        self._closed = True
+                        self._cond.notify_all()
+                self._stop.wait(0.02)
+                continue
+            with self._cond:
+                self._ring.clear()
+                self._end = 0
+                self._generation = gen
+                self._fmt = self.pipeline.fmt
+                self._closed = False
+                self._cond.notify_all()
+            ring_limit = int(self._fmt.sample_rate * self._fmt.frame_bytes * self.RING_SECONDS)
+            while not self._stop.is_set():
+                block = self.pipeline.next_block(gen)
+                if block is None:
+                    break
+                if not block:
+                    continue
+                t_start = self.pipeline.last_block_start
+                with self._cond:
+                    self._ring.append((self._end, block, t_start))
+                    self._end += len(block)
+                    while self._ring and self._end - self._ring[0][0] > ring_limit:
+                        self._ring.popleft()
+                    self._cond.notify_all()
+            with self._cond:
+                if self._generation == gen:
+                    self._closed = True
+                    self._cond.notify_all()
+
+    def _live_position(self):
+        """Byte offset of the audio that should be heard *now* (so each reader gets the full lead)."""
+        now = now_us()
+        fmt = self._fmt
+        for start, data, t in self._ring:
+            if t is None:
+                continue
+            dur = fmt.duration_us(len(data))
+            if t + dur >= now:
+                skip = fmt.bytes_for_us(max(0, now - t))
+                return start + min(skip, len(data))
+        return self._end
+
+    def reader(self, generation):
+        """Generator of byte blocks for one HTTP client; starts at the live edge."""
+        with self._cond:
+            deadline = time.monotonic() + 5
+            while self._generation != generation or self._closed:
+                if self._stop.is_set() or time.monotonic() > deadline or (
+                        self._generation is not None and self._generation > generation):
+                    return
+                self._cond.wait(0.1)
+            pos = self._live_position()
+        while True:
+            with self._cond:
+                while self._end <= pos and not self._closed and self._generation == generation:
+                    self._cond.wait(0.5)
+                if self._generation != generation or (self._closed and self._end <= pos):
+                    return
+                if self._ring and pos < self._ring[0][0]:
+                    pos = self._ring[0][0]  # reader fell too far behind: skip ahead
+                out = []
+                for start, data, _t in self._ring:
+                    end = start + len(data)
+                    if end <= pos:
+                        continue
+                    out.append(data[max(0, pos - start):])
+                pos = self._end
+            if out:
+                yield b"".join(out)
+
+
 class _Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.0"
     server_version = "kodi-sendspin"
@@ -270,19 +373,18 @@ class _Handler(BaseHTTPRequestHandler):
         except ValueError:
             return None
 
-    def do_HEAD(self):  # noqa: N802
-        pipeline = self.server.pipeline
-        if pipeline.fmt is None:
-            self.send_error(404)
-            return
-        self._headers()
-
     def _headers(self):
         self.send_response(200)
         self.send_header("Content-Type", "audio/wav")
         self.send_header("Cache-Control", "no-cache")
         self.send_header("Connection", "close")
         self.end_headers()
+
+    def do_HEAD(self):  # noqa: N802
+        if self.server.pipeline.fmt is None:
+            self.send_error(404)
+            return
+        self._headers()
 
     def do_GET(self):  # noqa: N802
         pipeline = self.server.pipeline
@@ -291,18 +393,16 @@ class _Handler(BaseHTTPRequestHandler):
             self.send_error(404)
             return
         self._headers()
-        fmt = pipeline.fmt
-        reader = pipeline.claim_reader()
+        log.debug("http reader %s for generation %d (range=%s)", self.client_address, generation,
+                  self.headers.get("Range"))
         try:
-            self.wfile.write(fmt.wav_header())
-            while not self.server.stopping:
-                block = pipeline.next_block(generation, reader)
-                if block is None:
+            self.wfile.write(pipeline.fmt.wav_header())
+            for block in self.server.broadcaster.reader(generation):
+                if self.server.stopping:
                     break
-                if block:
-                    self.wfile.write(block)
+                self.wfile.write(block)
         except (BrokenPipeError, ConnectionResetError, socket.timeout, OSError):
-            log.debug("http client went away")
+            log.debug("http reader went away")
 
 
 class WavStreamServer:
@@ -310,9 +410,11 @@ class WavStreamServer:
 
     def __init__(self, pipeline, host="127.0.0.1", port=0):
         self.pipeline = pipeline
+        self.broadcaster = Broadcaster(pipeline)
         self._httpd = ThreadingHTTPServer((host, port), _Handler)
         self._httpd.daemon_threads = True
         self._httpd.pipeline = pipeline
+        self._httpd.broadcaster = self.broadcaster
         self._httpd.stopping = False
         self._thread = threading.Thread(target=self._httpd.serve_forever, name="sendspin-http", daemon=True)
 
@@ -324,9 +426,11 @@ class WavStreamServer:
         return "http://127.0.0.1:%d/stream/%d.wav" % (self.port, generation)
 
     def start(self):
+        self.broadcaster.start()
         self._thread.start()
 
     def stop(self):
         self._httpd.stopping = True
+        self.broadcaster.stop()
         self._httpd.shutdown()
         self._httpd.server_close()

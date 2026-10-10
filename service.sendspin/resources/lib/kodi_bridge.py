@@ -4,6 +4,7 @@ import logging
 import os
 import socket
 import threading
+import time
 import uuid
 
 import xbmc
@@ -122,7 +123,10 @@ class SendspinPlayer(xbmc.Player):
         self.bridge.on_kodi_stopped()
 
     def onPlayBackEnded(self):  # noqa: N802
-        self.bridge.on_kodi_stopped()
+        self.bridge.on_kodi_ended()
+
+    def onPlayBackError(self):  # noqa: N802
+        self.bridge.on_kodi_ended()
 
 
 class Bridge(Listener):
@@ -143,6 +147,7 @@ class Bridge(Listener):
         self._expect_stop = False
         self._lock = threading.Lock()
         self.metadata = {}
+        self._restarts = []
 
     # -- lifecycle ---------------------------------------------------------
     def start(self, server_url):
@@ -265,6 +270,21 @@ class Bridge(Listener):
             self.user_action("stop")
             with self._lock:
                 self._current_url = None
+
+    def on_kodi_ended(self):
+        """Kodi hit end-of-stream / an error on our live stream: restart, don't stop MA."""
+        with self._lock:
+            self._expect_stop = False
+            ours = self._current_url is not None
+        if not (ours and self.pipeline.active):
+            return
+        now = time.monotonic()
+        self._restarts = [t for t in self._restarts if now - t < 60] + [now]
+        if len(self._restarts) > 5:
+            log.error("Kodi keeps ending the stream - giving up until the next stream")
+            return
+        log.warning("Kodi ended our live stream unexpectedly - restarting playback")
+        threading.Timer(0.5, self._play_generation, args=(self.pipeline.generation,)).start()
 
     def tick(self):
         """Called ~1/s from the service loop."""

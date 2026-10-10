@@ -374,9 +374,10 @@ class Broadcaster:
             return
         import json
         import os
+        seconds = int(os.environ.get("SENDSPIN_TIMELINE_SECONDS", "90"))
         base = os.path.join(self.timeline_dir, "timeline-%d" % gen)
         self._tl = {"raw": open(base + ".raw", "wb"), "idx": open(base + ".jsonl", "w"), "bytes": 0,
-                    "limit": self._fmt.sample_rate * self._fmt.frame_bytes * 90}
+                    "limit": self._fmt.sample_rate * self._fmt.frame_bytes * seconds}
         self._tl["idx"].write(json.dumps({"rate": self._fmt.sample_rate, "channels": self._fmt.channels}) + "\n")
 
     def _log_timeline(self, t_start, block):

@@ -373,7 +373,7 @@ class Bridge(Listener):
         return (now - intended) / 1000.0
 
     SYNC_SETTLE_S = 3.0  # let Kodi's player settle after (re)starting
-    SYNC_THRESHOLD_MS = 25.0
+    SYNC_THRESHOLD_MS = 35.0  # Player.getTime() jitters by about ±10-15 ms
     SYNC_INTERVAL_S = 5.0
 
     def _auto_sync(self):
@@ -390,11 +390,11 @@ class Bridge(Listener):
         err = self.output_error_ms()
         if err is None:
             return
-        self._sync_samples = (self._sync_samples + [err])[-3:]
+        self._sync_samples = (self._sync_samples + [err])[-5:]
         log.debug("sync: Kodi output is %+.0f ms vs timeline", err)
-        if len(self._sync_samples) < 3 or now - self._sync_last < self.SYNC_INTERVAL_S:
+        if len(self._sync_samples) < 5 or now - self._sync_last < self.SYNC_INTERVAL_S:
             return
-        median = sorted(self._sync_samples)[1]
+        median = sorted(self._sync_samples)[2]
         if abs(median) >= self.SYNC_THRESHOLD_MS:
             self.pipeline.adjust_output(int(median * 1000))
             self._sync_last = now

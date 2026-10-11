@@ -105,3 +105,19 @@ msgstr ""
 msgctxt "#30202"
 msgid "Disconnected from Music Assistant"
 msgstr ""
+
+msgctxt "#30203"
+msgid "Music Assistant"
+msgstr ""
+
+msgctxt "#30204"
+msgid "Streaming from %s via Sendspin"
+msgstr ""
+
+msgctxt "#30205"
+msgid "Next track"
+msgstr ""
+
+msgctxt "#30206"
+msgid "Previous track"
+msgstr ""

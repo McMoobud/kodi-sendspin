@@ -3,10 +3,10 @@
 Runs next to Kodi on a machine whose PulseAudio default sink is a *null sink*
 (silent). Records the sink monitor with per-chunk CLOCK_MONOTONIC timestamps,
 then cross-correlates the recording with the audio the add-on released
-(SENDSPIN_TIMELINE_DIR dump) to find when each sample *actually* left Kodi
+(SENDSPIN_TIMELINE=1 dump into Kodi's temp folder) to find when each sample *actually* left Kodi
 versus when the server wanted it heard.
 
-    python3 measure_sync.py /tmp/tl 20      # record 20 s while music is playing
+    python3 measure_sync.py ~/.kodi/temp/sendspin_timeline 20   # record 20 s while music is playing
 
 Positive error = Kodi plays LATE; use the add-on's sync trim (static delay) or
 output-latency setting to compensate on real hardware.
@@ -20,7 +20,7 @@ import time
 
 import numpy as np
 
-TL_DIR = sys.argv[1] if len(sys.argv) > 1 else "/tmp/tl"
+TL_DIR = sys.argv[1] if len(sys.argv) > 1 else os.path.expanduser("~/.kodi/temp/sendspin_timeline")
 SECONDS = float(sys.argv[2]) if len(sys.argv) > 2 else 20
 RATE, CH = 44100, 2
 FRAME = CH * 2
@@ -48,7 +48,7 @@ def mono(raw):
 def main():
     raws = sorted(glob.glob(os.path.join(TL_DIR, "timeline-*.raw")), key=os.path.getmtime)
     if not raws:
-        sys.exit("no timeline dump in %s - start Kodi with SENDSPIN_TIMELINE_DIR set" % TL_DIR)
+        sys.exit("no timeline dump in %s - start Kodi with SENDSPIN_TIMELINE=1" % TL_DIR)
     print("recording %.0f s from silent.monitor ..." % SECONDS)
     chunks = record(SECONDS)
     raw_path = raws[-1]

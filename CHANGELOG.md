@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.0, 2026-10-11
+- Licence changed to GPL-2.0-or-later
+- Generic icon and fanart (no third-party logos)
+- All user-visible text comes from strings.po
+- Logging at debug level only (errors excepted) unless the add-on's debug setting is on
+- Developer sync-measurement dump writes only to Kodi's temp folder
+- Tested on Fire TV (Kodi 21.2)
+
 ## 0.1.0 (preview), 2026-10-11
 - First working version: Sendspin player/metadata/controller roles over the unencrypted
   transition mode (Music Assistant 2.10 / aiosendspin 9.1.1)

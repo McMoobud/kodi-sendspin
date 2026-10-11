@@ -122,7 +122,3 @@ def discover(timeout=3.0):
         })
     return servers
 
-
-if __name__ == "__main__":  # manual test: python3 -m sendspin.discovery
-    logging.basicConfig(level=logging.DEBUG)
-    print(discover())

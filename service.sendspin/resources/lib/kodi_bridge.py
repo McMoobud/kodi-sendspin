@@ -28,18 +28,17 @@ log = logging.getLogger("sendspin.kodi")
 class KodiLogHandler(logging.Handler):
     """Route Python logging into kodi.log."""
 
-    LEVELS = {logging.DEBUG: xbmc.LOGDEBUG, logging.INFO: xbmc.LOGINFO,
-              logging.WARNING: xbmc.LOGWARNING, logging.ERROR: xbmc.LOGERROR,
-              logging.CRITICAL: xbmc.LOGFATAL}
-
     def __init__(self, debug):
         super().__init__()
         self.debug = debug
 
     def emit(self, record):
-        level = self.LEVELS.get(record.levelno, xbmc.LOGINFO)
-        if self.debug and level == xbmc.LOGDEBUG:
-            level = xbmc.LOGINFO  # make debug visible without Kodi's global debug mode
+        if record.levelno >= logging.ERROR:
+            level = xbmc.LOGERROR
+        elif self.debug:
+            level = xbmc.LOGINFO  # opt-in via the add-on's debug setting, no global debug mode needed
+        else:
+            level = xbmc.LOGDEBUG
         xbmc.log("[%s] %s: %s" % (ADDON_ID, record.name, self.format(record)), level)
 
 
@@ -99,10 +98,14 @@ def device_name():
     return "Kodi (%s)" % socket.gethostname()
 
 
+def L(string_id):
+    return ADDON.getLocalizedString(string_id)
+
+
 def notify(message, ms=4000):
     if _setting_bool("notifications", True):
         # sound=False: never make a noise, even for toasts
-        xbmcgui.Dialog().notification("Sendspin", message, ICON, ms, False)
+        xbmcgui.Dialog().notification(ADDON.getAddonInfo("name"), message, ICON, ms, False)
 
 
 class SendspinPlayer(xbmc.Player):
@@ -140,7 +143,9 @@ class Bridge(Listener):
             lead_ms=_setting_int("lead_ms", 3000),
             static_delay_ms=_setting_int("static_delay_ms", 0),
         )
-        timeline = os.environ.get("SENDSPIN_TIMELINE_DIR")  # sync measurement (dev only)
+        timeline = None
+        if os.environ.get("SENDSPIN_TIMELINE"):  # sync measurement (dev only), into special://temp
+            timeline = os.path.join(xbmcvfs.translatePath("special://temp"), "sendspin_timeline")
         self.http = WavStreamServer(self.pipeline, timeline_dir=timeline)
         self.player = SendspinPlayer(self)
         self.client = None
@@ -193,7 +198,7 @@ class Bridge(Listener):
 
     def _listitem(self, url):
         md = self.metadata
-        title = md.get("title") or "Music Assistant"
+        title = md.get("title") or L(30203)
         li = xbmcgui.ListItem(label=title, path=url, offscreen=True)
         li.setMimeType("audio/wav")
         li.setContentLookup(False)
@@ -215,15 +220,16 @@ class Bridge(Listener):
         art = md.get("artwork_url")
         if art:
             li.setArt({"thumb": art, "icon": art, "fanart": art, "album.thumb": art})
-        tag.setComment("Streaming from %s via Sendspin" % (self.client.server_name if self.client else "Music Assistant"))
+        tag.setComment(L(30204) % (self.client.server_name if self.client else L(30203)))
         return li
 
     @staticmethod
     def _sentinel(action, url):
-        li = xbmcgui.ListItem(label="%s track" % action.capitalize(), path=url, offscreen=True)
+        label = L(30205) if action == "next" else L(30206)
+        li = xbmcgui.ListItem(label=label, path=url, offscreen=True)
         li.setMimeType("audio/wav")
         li.setContentLookup(False)
-        li.getMusicInfoTag().setTitle("%s track (Music Assistant)" % action.capitalize())
+        li.getMusicInfoTag().setTitle(label)
         return li
 
     def on_remote_skip(self, action, path=None):

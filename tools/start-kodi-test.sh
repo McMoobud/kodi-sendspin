@@ -12,4 +12,4 @@ if ! pactl info >/dev/null 2>&1; then
 fi
 Xvfb :1 -screen 0 1280x720x24 >/tmp/xvfb.log 2>&1 &
 sleep 2
-mkdir -p /tmp/tl; rm -f /tmp/tl/*; DISPLAY=:1 SENDSPIN_TIMELINE_DIR=/tmp/tl SENDSPIN_TIMELINE_SECONDS=1500 KODI_AE_SINK=PULSE LIBGL_ALWAYS_SOFTWARE=1 nohup kodi --standalone >/tmp/kodi-stdout.log 2>&1 &
+rm -rf ~/.kodi/temp/sendspin_timeline; DISPLAY=:1 SENDSPIN_TIMELINE=1 SENDSPIN_TIMELINE_SECONDS=1500 KODI_AE_SINK=PULSE LIBGL_ALWAYS_SOFTWARE=1 nohup kodi --standalone >/tmp/kodi-stdout.log 2>&1 &

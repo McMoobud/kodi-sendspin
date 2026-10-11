@@ -1,5 +1,3 @@
-<p align="center"><img src="docs/sendspin-logo.png" alt="Sendspin" width="434"></p>
-
 # Sendspin Player for Kodi
 
 Turn any Kodi box into a **[Music Assistant](https://music-assistant.io) speaker** using
@@ -8,8 +6,8 @@ with title, artist and artwork on Kodi's own *Now Playing* screen.
 
 ![Kodi Now Playing driven by Music Assistant over Sendspin](docs/now-playing.png)
 
-> **Status: technical preview (v0.1.0).** It works end-to-end against Music Assistant 2.10.4
-> on Kodi 20.1 (Linux test box). Kodi 21.2 on Fire TV has not been tested yet. See
+> **Status: technical preview (v0.2.0).** It works end-to-end against Music Assistant 2.10.4
+> on Kodi 20.1 (Linux test box) and on a Fire TV running Kodi 21.2. See
 > [Test results](#test-results) and [Known limitations](#known-limitations).
 
 ## Features
@@ -29,7 +27,7 @@ with title, artist and artwork on Kodi's own *Now Playing* screen.
 
 1. Build or download `service.sendspin-<version>.zip`:
    ```bash
-   python3 tools/build_zip.py        # -> dist/service.sendspin-0.1.0.zip
+   python3 tools/build_zip.py        # -> dist/service.sendspin-0.2.0.zip
    ```
 2. In Kodi: **Settings → System → Add-ons → Unknown sources: on**.
 3. **Settings → Add-ons → Install from zip file →** pick the zip.
@@ -38,7 +36,7 @@ with title, artist and artwork on Kodi's own *Now Playing* screen.
 
 ### Fire TV notes
 
-- Copy the zip to the Fire TV (for example with *Send Files to TV*, or `adb push service.sendspin-0.1.0.zip /sdcard/Download/`).
+- Copy the zip to the Fire TV (for example with *Send Files to TV*, or `adb push service.sendspin-0.2.0.zip /sdcard/Download/`).
 - The add-on only runs **while the Kodi app is running**. Android may suspend Kodi when another
   app is in the foreground.
 - Your TV/AV receiver adds its own delay that Kodi cannot see. If Kodi sounds slightly behind
@@ -110,6 +108,7 @@ Run against a live Music Assistant 2.10.4 (aiosendspin 9.1.1):
 | Real Kodi: **MA group** with another Sendspin player | ✅ both play; Kodi −21 ms vs the shared timeline |
 | Real Kodi: **10-min soak** | ✅ 0 disconnects/timeouts/errors; 1 small auto-sync correction after ~8 min |
 | **Real Kodi 20.1** (Linux container, silent null sink) | ✅ play, MA next ×2 with title updates, pause in Kodi → MA pauses, MA play → resumes, MA volume, MA stop → Kodi stops; 0 errors/resets |
+| **Fire TV, Kodi 21.2 (Android)** | ✅ hands-on test at home |
 | `kodi-addon-checker --branch omega` | ✅ no problems |
 | **Sync** (`tools/measure_sync.py`: capture Kodi's actual output and cross-correlate with the timeline) | Without auto-sync: Kodi −565 ms (early) with the 3 s lead, or **+1652 ms** (late) with a 0.8 s lead. **With auto-sync: −18 ms, jitter 1 ms** |
 
@@ -120,8 +119,7 @@ Run against a live Music Assistant 2.10.4 (aiosendspin 9.1.1):
   Options: AES-GCM via Android's `javax.crypto`? Not reachable from Kodi Python. Or request a
   compressed codec (FLAC/Opus) to cut bytes, then decrypt.
 - **PCM only** (16-bit, 44.1/48 kHz). FLAC would save bandwidth on Wi-Fi.
-- **Not yet tested on Fire TV / Kodi 21.2 (Android)**. Android's AudioTrack sink has a different
-  latency, which auto-sync should absorb. TV/AVR delay needs the manual trim.
+- TV/AV receiver delay is invisible to Kodi and needs the manual trim (**Sync → Extra delay**).
 - Starting or skipping takes about 3 s (the release lead), because Kodi needs ~2.4 s of buffer before it plays.
 - Kodi's *Previous* restarts the current item if pressed more than ~3 s in (Kodi behaviour), so press it twice or use MA.
 - Music Assistant 2.10 rejects `set_static_delay` in the hello, so delay changes from MA's UI aren't advertised.
@@ -141,11 +139,12 @@ making any sound.
 
 ## License
 
-Apache-2.0
+[GPL-2.0-or-later](LICENSE). This program is free software: you can redistribute it and/or modify it
+under the terms of the GNU General Public License as published by the Free Software Foundation,
+either version 2 of the License, or (at your option) any later version.
 
-The Sendspin name and logo belong to the [Open Home Foundation](https://www.openhomefoundation.org)
-and are taken from [sendspin-audio.com](https://www.sendspin-audio.com). They are used here only
-to identify a Sendspin-compatible player. This is an unofficial community add-on.
+This is an unofficial community add-on. Sendspin is a project of the
+[Open Home Foundation](https://www.openhomefoundation.org).
 
 ---
 

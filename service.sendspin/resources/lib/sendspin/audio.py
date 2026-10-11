@@ -375,6 +375,7 @@ class Broadcaster:
         import json
         import os
         seconds = int(os.environ.get("SENDSPIN_TIMELINE_SECONDS", "90"))
+        os.makedirs(self.timeline_dir, exist_ok=True)
         base = os.path.join(self.timeline_dir, "timeline-%d" % gen)
         self._tl = {"raw": open(base + ".raw", "wb"), "idx": open(base + ".jsonl", "w"), "bytes": 0,
                     "limit": self._fmt.sample_rate * self._fmt.frame_bytes * seconds}

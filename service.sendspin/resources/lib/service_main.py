@@ -28,7 +28,7 @@ def run():
                 bridge = kodi_bridge.Bridge()
                 bridge.start(url)
             else:
-                kodi_bridge.notify("No Music Assistant found - set the server URL in settings", 8000)
+                kodi_bridge.notify(kodi_bridge.L(30201), 8000)
         monitor.settings_changed = False
         retry_at = 60  # re-run discovery every minute if nothing was found
         while not monitor.abortRequested() and not monitor.settings_changed:

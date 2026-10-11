@@ -1,5 +1,5 @@
 # Kodi Media Center language file
-# Addon Name: Sendspin Player
+# Addon Name: Kodi-Sendspin
 # Addon id: service.sendspin
 msgid ""
 msgstr ""

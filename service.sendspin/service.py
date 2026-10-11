@@ -1,4 +1,4 @@
-"""Sendspin Player service entry point (runs at Kodi login)."""
+"""Kodi-Sendspin service entry point (runs at Kodi login)."""
 import os
 import sys
 

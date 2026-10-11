@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.0, 2026-10-11
+- Named **Kodi-Sendspin**
+- Official Sendspin logo for the icon and fanart
+- Tested on Fire TV (Kodi 21.2) and Kodi 22 (Piers)
+
 ## 0.2.0, 2026-10-11
 - Licence changed to GPL-2.0-or-later
 - Generic icon and fanart (no third-party logos)

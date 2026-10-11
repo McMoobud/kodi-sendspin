@@ -1,4 +1,6 @@
-# Sendspin Player for Kodi
+<p align="center"><img src="docs/sendspin-logo.png" alt="Sendspin" width="434"></p>
+
+# Kodi-Sendspin
 
 Turn any Kodi box into a **[Music Assistant](https://music-assistant.io) speaker** using
 the **[Sendspin](https://www.sendspin-audio.com) protocol**: synchronised multi-room audio,
@@ -6,8 +8,8 @@ with title, artist and artwork on Kodi's own *Now Playing* screen.
 
 ![Kodi Now Playing driven by Music Assistant over Sendspin](docs/now-playing.png)
 
-> **Status: technical preview (v0.2.0).** It works end-to-end against Music Assistant 2.10.4
-> on Kodi 20.1 (Linux test box) and on a Fire TV running Kodi 21.2. See
+> **Status: v1.0.0.** It works end-to-end against Music Assistant 2.10.4
+> on Kodi 20.1 (Linux test box), on a Fire TV running Kodi 21.2, and on Kodi 22 (Piers). See
 > [Test results](#test-results) and [Known limitations](#known-limitations).
 
 ## Features
@@ -31,7 +33,7 @@ Release zips are also on the [Releases page](https://github.com/McMoobud/kodi-se
 
 1. Build or download `service.sendspin-<version>.zip`:
    ```bash
-   python3 tools/build_zip.py        # -> dist/service.sendspin-0.2.0.zip
+   python3 tools/build_zip.py        # -> dist/service.sendspin-1.0.0.zip
    ```
 2. In Kodi: **Settings → System → Add-ons → Unknown sources: on**.
 3. **Settings → Add-ons → Install from zip file →** pick the zip.
@@ -40,7 +42,7 @@ Release zips are also on the [Releases page](https://github.com/McMoobud/kodi-se
 
 ### Fire TV notes
 
-- Copy the zip to the Fire TV (for example with *Send Files to TV*, or `adb push service.sendspin-0.2.0.zip /sdcard/Download/`).
+- Copy the zip to the Fire TV (for example with *Send Files to TV*, or `adb push service.sendspin-1.0.0.zip /sdcard/Download/`).
 - The add-on only runs **while the Kodi app is running**. Android may suspend Kodi when another
   app is in the foreground.
 - Your TV/AV receiver adds its own delay that Kodi cannot see. If Kodi sounds slightly behind
@@ -113,7 +115,8 @@ Run against a live Music Assistant 2.10.4 (aiosendspin 9.1.1):
 | Real Kodi: **10-min soak** | ✅ 0 disconnects/timeouts/errors; 1 small auto-sync correction after ~8 min |
 | **Real Kodi 20.1** (Linux container, silent null sink) | ✅ play, MA next ×2 with title updates, pause in Kodi → MA pauses, MA play → resumes, MA volume, MA stop → Kodi stops; 0 errors/resets |
 | **Fire TV, Kodi 21.2 (Android)** | ✅ hands-on test at home |
-| `kodi-addon-checker --branch omega` | ✅ no problems |
+| **Kodi 22 (Piers)** | ✅ hands-on test at home |
+| `kodi-addon-checker --branch piers` | ✅ no problems, no warnings |
 | **Sync** (`tools/measure_sync.py`: capture Kodi's actual output and cross-correlate with the timeline) | Without auto-sync: Kodi −565 ms (early) with the 3 s lead, or **+1652 ms** (late) with a 0.8 s lead. **With auto-sync: −18 ms, jitter 1 ms** |
 
 ## Known limitations / roadmap
@@ -147,8 +150,9 @@ making any sound.
 under the terms of the GNU General Public License as published by the Free Software Foundation,
 either version 2 of the License, or (at your option) any later version.
 
-This is an unofficial community add-on. Sendspin is a project of the
-[Open Home Foundation](https://www.openhomefoundation.org).
+Kodi-Sendspin is an unofficial community add-on. The Sendspin name and logo belong to the
+[Open Home Foundation](https://www.openhomefoundation.org); the logo is taken from
+[sendspin-audio.com](https://www.sendspin-audio.com).
 
 ---
 

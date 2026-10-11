@@ -1,4 +1,4 @@
-"""Sendspin Player service loop."""
+"""Kodi-Sendspin service loop."""
 
 import xbmc
 import xbmcaddon

@@ -1,4 +1,4 @@
-<p align="center"><img src="docs/sendspin-logo.png" alt="Sendspin" width="434"></p>
+<p align="center"><img src="docs/banner.png" alt="Kodi-Sendspin" width="600"></p>
 
 # Kodi-Sendspin
 
@@ -8,7 +8,7 @@ with title, artist and artwork on Kodi's own *Now Playing* screen.
 
 ![Kodi Now Playing driven by Music Assistant over Sendspin](docs/now-playing.png)
 
-> **Status: v1.0.1.** It works end-to-end against Music Assistant 2.10.4
+> **Status: v1.0.2.** It works end-to-end against Music Assistant 2.10.4
 > on Kodi 20.1 (Linux test box), on a Fire TV running Kodi 21.2, and on Kodi 22 (Piers). See
 > [Test results](#test-results) and [Known limitations](#known-limitations).
 
@@ -33,7 +33,7 @@ Release zips are also on the [Releases page](https://github.com/McMoobud/kodi-se
 
 1. Build or download `service.sendspin-<version>.zip`:
    ```bash
-   python3 tools/build_zip.py        # -> dist/service.sendspin-1.0.1.zip
+   python3 tools/build_zip.py        # -> dist/service.sendspin-1.0.2.zip
    ```
 2. In Kodi: **Settings → System → Add-ons → Unknown sources: on**.
 3. **Settings → Add-ons → Install from zip file →** pick the zip.
@@ -42,7 +42,7 @@ Release zips are also on the [Releases page](https://github.com/McMoobud/kodi-se
 
 ### Fire TV notes
 
-- Copy the zip to the Fire TV (for example with *Send Files to TV*, or `adb push service.sendspin-1.0.1.zip /sdcard/Download/`).
+- Copy the zip to the Fire TV (for example with *Send Files to TV*, or `adb push service.sendspin-1.0.2.zip /sdcard/Download/`).
 - The add-on only runs **while the Kodi app is running**. Android may suspend Kodi when another
   app is in the foreground.
 - Your TV/AV receiver adds its own delay that Kodi cannot see. If Kodi sounds slightly behind
@@ -150,9 +150,8 @@ making any sound.
 under the terms of the GNU General Public License as published by the Free Software Foundation,
 either version 2 of the License, or (at your option) any later version.
 
-Kodi-Sendspin is an unofficial community add-on. The Sendspin name and logo belong to the
-[Open Home Foundation](https://www.openhomefoundation.org); the logo is taken from
-[sendspin-audio.com](https://www.sendspin-audio.com).
+Kodi-Sendspin is an unofficial community add-on. Sendspin is a project of the
+[Open Home Foundation](https://www.openhomefoundation.org). Kodi is a trademark of the XBMC Foundation.
 
 ---
 

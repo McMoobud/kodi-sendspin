@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.0.2, 2026-10-11
+- New Kodi-Sendspin artwork: icon, fanart, banner and clear logo
+
 ## 1.0.1, 2026-10-11
 - WebSocket messages are size-limited (a misbehaving server can no longer exhaust memory)
 - mDNS discovery ignores malformed replies and waits for the server's address and path

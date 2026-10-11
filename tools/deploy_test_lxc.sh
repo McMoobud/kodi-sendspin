@@ -2,6 +2,7 @@
 # Deploy the add-on into the throwaway Kodi test container (a Proxmox LXC; set PVE_HOST and CTID)
 # and restart Kodi there. The container has no sound hardware (PulseAudio null sink).
 set -e
+: "${PVE_HOST:?set PVE_HOST to the Proxmox host}" "${CTID:?set CTID to the test container ID}"
 cd "$(dirname "$0")/.."
 tar czf /tmp/service.sendspin.tgz --exclude=__pycache__ service.sendspin
 scp -q -o BatchMode=yes /tmp/service.sendspin.tgz root@"$PVE_HOST":/tmp/

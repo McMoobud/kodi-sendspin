@@ -1,8 +1,8 @@
 #!/bin/bash
-# One-time: create an EMPTY private repo github.com/Mcmoobud/kodi-sendspin and add this
-# machine's public key (~/.ssh/id_ed25519.pub) as a deploy key WITH write access
-# (repo Settings -> Deploy keys). Then run this script.
+# Push main to github.com/McMoobud/kodi-sendspin over HTTPS.
+# Needs a GitHub token with Contents: write in $GITHUB_TOKEN (never stored in the repo).
 set -e
 cd "$(dirname "$0")/.."
-git remote get-url origin >/dev/null 2>&1 || git remote add origin git@github.com:Mcmoobud/kodi-sendspin.git
-git push -u origin main
+: "${GITHUB_TOKEN:?set GITHUB_TOKEN}"
+git remote get-url origin >/dev/null 2>&1 || git remote add origin https://github.com/McMoobud/kodi-sendspin.git
+git -c credential.helper= -c "credential.helper=!f() { echo username=x-access-token; echo password=\$GITHUB_TOKEN; }; f" push -u origin main

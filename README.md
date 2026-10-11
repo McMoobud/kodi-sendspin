@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/sendspin-logo.png" alt="Sendspin" width="434"></p>
+
 # Sendspin Player for Kodi
 
 Turn any Kodi box into a **[Music Assistant](https://music-assistant.io) speaker** using
@@ -140,3 +142,7 @@ making any sound.
 ## License
 
 Apache-2.0
+
+The Sendspin name and logo belong to the [Open Home Foundation](https://www.openhomefoundation.org)
+and are taken from [sendspin-audio.com](https://www.sendspin-audio.com). They are used here only
+to identify a Sendspin-compatible player. This is an unofficial community add-on.

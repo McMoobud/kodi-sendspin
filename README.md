@@ -131,7 +131,7 @@ Run against a live Music Assistant 2.10.4 (aiosendspin 9.1.1):
 ```bash
 python3 -m unittest discover -s tests -p "test_*.py"     # unit tests
 python3 tests/harness.py ws://<ma-host>:8927/sendspin 60   # headless player, writes /tmp/sendspin_test.wav
-HA_URL=http://<ha>:8123 HA_TOKEN=... python3 tests/e2e_service.py   # fake-Kodi E2E via HA
+HA_URL=http://<ha>:8123 HA_TOKEN=... HA_ENTITY=media_player.<player> python3 tests/e2e_service.py   # fake-Kodi E2E via HA
 python3 tools/build_zip.py                                  # installable zip
 ```
 
@@ -146,3 +146,7 @@ Apache-2.0
 The Sendspin name and logo belong to the [Open Home Foundation](https://www.openhomefoundation.org)
 and are taken from [sendspin-audio.com](https://www.sendspin-audio.com). They are used here only
 to identify a Sendspin-compatible player. This is an unofficial community add-on.
+
+---
+
+<sub>Disclaimer: this add-on was written with the help of Claude, an AI model by Anthropic. It has been tested as described above, but it is a community preview. Use it at your own risk.</sub>

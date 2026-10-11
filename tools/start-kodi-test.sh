@@ -1,4 +1,5 @@
 #!/bin/bash
+# For a DEDICATED, silent Kodi test box only: it kills any running Kodi and Xvfb.
 # Stop any running Kodi completely before starting a fresh one (two instances = duplicate players)
 pkill -TERM -x kodi.bin
 for i in $(seq 1 30); do pgrep -x kodi.bin >/dev/null || break; sleep 0.5; done

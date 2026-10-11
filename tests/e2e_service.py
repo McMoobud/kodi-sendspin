@@ -21,7 +21,7 @@ import xbmc  # noqa: E402  (fake)
 
 HA_URL = os.environ["HA_URL"]
 HA_TOKEN = os.environ["HA_TOKEN"]
-ENTITY = os.environ.get("HA_ENTITY", "media_player.kodi_sendspin_dev")
+ENTITY = os.environ["HA_ENTITY"]  # MA player entity for the add-on, e.g. media_player.kodi_test
 STREAM = os.environ.get("TEST_STREAM", "https://ice1.somafm.com/groovesalad-128-mp3")
 
 

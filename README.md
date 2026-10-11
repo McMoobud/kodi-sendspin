@@ -25,6 +25,10 @@ with title, artist and artwork on Kodi's own *Now Playing* screen.
 
 ## Install
 
+**Easiest:** in Kodi, add **`https://mcmoobud.github.io/kodi-sendspin/`** as a source in
+**Settings → File manager → Add source**, then install from it with **Install from zip file** (step 3).
+Release zips are also on the [Releases page](https://github.com/McMoobud/kodi-sendspin/releases).
+
 1. Build or download `service.sendspin-<version>.zip`:
    ```bash
    python3 tools/build_zip.py        # -> dist/service.sendspin-0.2.0.zip

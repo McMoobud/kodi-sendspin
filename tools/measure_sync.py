@@ -52,8 +52,17 @@ def main():
     print("recording %.0f s from silent.monitor ..." % SECONDS)
     chunks = record(SECONDS)
     raw_path = raws[-1]
-    released = open(raw_path, "rb").read()
     index = [tuple(map(int, l.split())) for l in open(raw_path[:-4] + ".jsonl").read().splitlines()[1:]]
+    # only load the released audio whose intended play time is near the recording window
+    t_lo, t_hi = chunks[0][0] - 8_000_000, chunks[-1][0] + 8_000_000
+    sel = [(off, ln, t) for off, ln, t in index if t and t_lo <= t <= t_hi]
+    if not sel:
+        sys.exit("recording window is outside the dumped timeline (raise SENDSPIN_TIMELINE_SECONDS)")
+    base_off = sel[0][0]
+    with open(raw_path, "rb") as f:
+        f.seek(base_off)
+        released = f.read(sel[-1][0] + sel[-1][1] - base_off)
+    index = [(off - base_off, ln, t) for off, ln, t in sel]
     cap = b"".join(b for _, b in chunks)
     # sample index -> capture time: the last sample of each chunk was captured at its timestamp
     ends, total = [], 0

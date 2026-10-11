@@ -17,7 +17,7 @@ with title, artist and artwork on Kodi's own *Now Playing* screen.
 - **Automatic sync**: measures Kodi's own playback delay and corrects it (≈ ±20 ms in tests)
 - **Now Playing** in Kodi: title, artist, album, artwork, live updates on track change
 - **Volume / mute from Music Assistant** (applied to the stream; Kodi's own volume untouched)
-- **Kodi remote → Music Assistant**: Pause and Stop in Kodi pause/stop the MA queue
+- **Kodi remote → Music Assistant**: Pause, Stop, Next and Previous control the MA queue
 - **Steps aside for video**: while Kodi plays a film it reports itself unavailable, so music never interrupts
 - **Zero-config**: finds Music Assistant via mDNS (or set the URL manually)
 - **Pure Python, no dependencies**: works on Android/Fire TV, LibreELEC, Windows, macOS, Linux
@@ -57,6 +57,7 @@ with title, artist and artwork on Kodi's own *Now Playing* screen.
 | Player name | *(Kodi device name)* | Name shown in Music Assistant |
 | Server URL | *(auto)* | `ws://host:8927/sendspin`, or just `host` |
 | Step aside while Kodi plays video | on | Reports *unavailable* to MA while a video plays |
+| Kodi Next/Previous skip in MA | on | Hidden prev/next playlist entries around the live stream |
 | Show notifications | on | Always silent |
 | Automatic sync | on | Measures and corrects Kodi's playback delay |
 | Extra delay / sync trim | 0 ms | For TV/AVR latency; positive = later |
@@ -103,6 +104,9 @@ Run against a live Music Assistant 2.10.4 (aiosendspin 9.1.1):
 | Unit tests (`python3 -m unittest discover -s tests`) | ✅ 5/5 |
 | Headless client (`tests/harness.py`): 80 s radio | ✅ 0.992× real-time, 0 late drops, real audio (RMS 5939) |
 | Fake-Kodi end-to-end (`tests/e2e_service.py`) | ✅ play, MA volume, yield to video, Kodi stop → MA stop |
+| Real Kodi: remote **Next/Previous** | ✅ one press = one MA skip (Kodi probes playlist items twice; de-duplicated) |
+| Real Kodi: **MA group** with another Sendspin player | ✅ both play; Kodi −21 ms vs the shared timeline |
+| Real Kodi: **10-min soak** | ✅ 0 disconnects/timeouts/errors; 1 small auto-sync correction after ~8 min |
 | **Real Kodi 20.1** (Linux container, silent null sink) | ✅ play, MA next ×2 with title updates, pause in Kodi → MA pauses, MA play → resumes, MA volume, MA stop → Kodi stops; 0 errors/resets |
 | `kodi-addon-checker --branch omega` | ✅ no problems |
 | **Sync** (`tools/measure_sync.py`: capture Kodi's actual output and cross-correlate with the timeline) | Without auto-sync: Kodi −565 ms (early) with the 3 s lead, or **+1652 ms** (late) with a 0.8 s lead. **With auto-sync: −18 ms, jitter 1 ms** |
@@ -117,7 +121,7 @@ Run against a live Music Assistant 2.10.4 (aiosendspin 9.1.1):
 - **Not yet tested on Fire TV / Kodi 21.2 (Android)**. Android's AudioTrack sink has a different
   latency, which auto-sync should absorb. TV/AVR delay needs the manual trim.
 - Starting or skipping takes about 3 s (the release lead), because Kodi needs ~2.4 s of buffer before it plays.
-- Kodi's *Next/Previous* buttons don't map to Music Assistant yet (Pause/Stop do).
+- Kodi's *Previous* restarts the current item if pressed more than ~3 s in (Kodi behaviour), so press it twice or use MA.
 - Music Assistant 2.10 rejects `set_static_delay` in the hello, so delay changes from MA's UI aren't advertised.
 
 ## Development

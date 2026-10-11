@@ -30,6 +30,14 @@ msgctxt "#30005"
 msgid "Show notifications"
 msgstr ""
 
+msgctxt "#30006"
+msgid "Kodi Next/Previous buttons skip in Music Assistant"
+msgstr ""
+
+msgctxt "#30106"
+msgid "Adds hidden previous/next entries around the live stream so the remote's skip buttons control the Music Assistant queue."
+msgstr ""
+
 msgctxt "#30010"
 msgid "Sync"
 msgstr ""

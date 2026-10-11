@@ -35,7 +35,10 @@ def run():
             if monitor.waitForAbort(1):
                 break
             if bridge is not None:
-                bridge.tick()
+                try:
+                    bridge.tick()
+                except Exception:  # noqa: BLE001 - never let the service loop die
+                    kodi_bridge.log.exception("tick failed")
             elif addon.getSettingBool("enabled"):
                 retry_at -= 1
                 if retry_at <= 0:

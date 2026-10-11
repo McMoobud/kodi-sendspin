@@ -51,6 +51,7 @@ with open("/tmp/fakekodi-profile/client_id", "w") as f:
 import service_main as service  # noqa: E402
 
 T0 = time.time()
+import faulthandler; faulthandler.dump_traceback_later(int(os.environ.get("DUMP_AT", "0")) or 10**6)
 threading.Thread(target=service.run, daemon=True).start()
 results = {}
 
@@ -78,7 +79,7 @@ time.sleep(3)
 step("restart radio, then user presses STOP in Kodi")
 ha("POST", "/api/services/music_assistant/play_media",
    {"entity_id": ENTITY, "media_id": STREAM, "media_type": "radio", "enqueue": "replace"})
-time.sleep(12)
+time.sleep(20)  # the add-on ignores stops within 4 s of its own play()
 results["ha_before_user_stop"] = state()
 xbmc.Player().stop()
 time.sleep(6)

@@ -11,6 +11,17 @@ class Monitor:
     def abortRequested(self): return ABORT.is_set()
     def waitForAbort(self, t=0):
         return ABORT.wait(t)
+PLAYLIST_MUSIC = 0
+class PlayList:
+    def __init__(self, kind):
+        self.items = []
+    def clear(self):
+        self.items = []
+    def add(self, url, listitem=None, index=-1):
+        self.items.append((url, listitem))
+    def size(self):
+        return len(self.items)
+
 class Player:
     _state = {"file": None, "playing": False, "paused": False, "video": False, "gen": 0}
     _instances = []
@@ -22,9 +33,12 @@ class Player:
             fn = getattr(p, name, None)
             if fn: fn()
     def play(self, item=None, listitem=None, windowed=False, startpos=-1):
+        if isinstance(item, PlayList):
+            url, listitem = item.items[max(startpos, 0)]
+            item = url
         st = Player._state
         st["gen"] += 1; gen = st["gen"]
-        st.update(file=item, playing=True, paused=False, video=False)
+        st.update(file=item, playing=True, paused=False, video=False, started=time.monotonic())
         Player.stats["plays"] += 1
         EVENTS.append(("play", item, listitem and listitem.info))
         threading.Thread(target=self._consume, args=(item, gen), daemon=True).start()
@@ -54,6 +68,10 @@ class Player:
     def getPlayingFile(self):
         if not Player._state["playing"]: raise RuntimeError("Kodi is not playing any file")
         return Player._state["file"]
+    def getTime(self):
+        if not Player._state["playing"]: raise RuntimeError("Kodi is not playing any file")
+        return time.monotonic() - Player._state.get("started", time.monotonic())
+
     def updateInfoTag(self, item):
         Player.stats["infotag_updates"] += 1
         EVENTS.append(("infotag", item.info))

@@ -494,6 +494,17 @@ class _Handler(BaseHTTPRequestHandler):
         self._headers()
 
     def do_GET(self):  # noqa: N802
+        if self.path.startswith("/ctl/"):
+            # Kodi moved to a neighbour playlist entry: the remote's Next/Previous button.
+            action = self.path.split("/")[2]
+            callback = self.server.control_callback
+            if callback and action in ("next", "previous"):
+                callback(action, self.path)
+            try:
+                self.send_error(404)
+            except OSError:
+                pass
+            return
         pipeline = self.server.pipeline
         generation = self._parse_generation()
         if generation is None or generation != pipeline.generation or pipeline.fmt is None or not pipeline.active:
@@ -526,6 +537,7 @@ class WavStreamServer:
         self._httpd.daemon_threads = True
         self._httpd.pipeline = pipeline
         self._httpd.broadcaster = self.broadcaster
+        self._httpd.control_callback = None
         self._httpd.stopping = False
         self._thread = threading.Thread(target=self._httpd.serve_forever, name="sendspin-http", daemon=True)
 
@@ -535,6 +547,12 @@ class WavStreamServer:
 
     def url(self, generation):
         return "http://127.0.0.1:%d/stream/%d.wav" % (self.port, generation)
+
+    def control_url(self, action, generation):
+        return "http://127.0.0.1:%d/ctl/%s/%d.wav" % (self.port, action, generation)
+
+    def set_control_callback(self, callback):
+        self._httpd.control_callback = callback
 
     def start(self):
         self.broadcaster.start()

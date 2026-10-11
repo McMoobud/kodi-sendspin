@@ -151,6 +151,7 @@ class Bridge(Listener):
         self.metadata = {}
         self._restarts = []
         self._output_running = False
+        self._last_skip_path = None
         self._last_play_call = 0.0
         self._sync_gen, self._sync_since, self._sync_samples, self._sync_last = None, 0.0, [], 0.0
         self._queue = queue.Queue()
@@ -159,6 +160,7 @@ class Bridge(Listener):
     # -- lifecycle ---------------------------------------------------------
     def start(self, server_url):
         self._worker_thread.start()
+        self.http.set_control_callback(self.on_remote_skip)
         self.http.start()
         self.url_prefix = "http://127.0.0.1:%d/stream/" % self.http.port
         self.client = SendspinClient(
@@ -216,6 +218,28 @@ class Bridge(Listener):
         tag.setComment("Streaming from %s via Sendspin" % (self.client.server_name if self.client else "Music Assistant"))
         return li
 
+    @staticmethod
+    def _sentinel(action, url):
+        li = xbmcgui.ListItem(label="%s track" % action.capitalize(), path=url, offscreen=True)
+        li.setMimeType("audio/wav")
+        li.setContentLookup(False)
+        li.getMusicInfoTag().setTitle("%s track (Music Assistant)" % action.capitalize())
+        return li
+
+    def on_remote_skip(self, action, path=None):
+        """HTTP thread: Kodi opened a sentinel -> skip in MA; MA then restarts our stream."""
+        with self._lock:
+            # Kodi opens a playlist item twice (probe + open): one button press = one skip
+            if path is not None and path == self._last_skip_path:
+                return
+            self._last_skip_path = path
+        log.info("Kodi %s button -> Music Assistant", action)
+        with self._lock:
+            self._expect_stop = True
+            self._last_play_call = time.monotonic()  # Kodi will stop/err on the sentinel: not a user stop
+        if self.client:
+            self.client.send_controller(action)
+
     def _play_generation(self, generation):
         if _setting_bool("yield_to_video", True) and self.other_media_playing():
             log.info("Kodi is busy with other media - not taking over playback")
@@ -233,7 +257,19 @@ class Bridge(Listener):
             self._expect_stop = True  # play() stops the previous item first
             self._last_play_call = time.monotonic()
         log.info("Kodi play %s", url)
-        self.player.play(url, self._listitem(url))
+        if _setting_bool("remote_skip", True):
+            # [previous-sentinel, live stream, next-sentinel]: Kodi's Next/Previous buttons
+            # move to a sentinel, whose URL tells us to skip in Music Assistant.
+            playlist = xbmc.PlayList(xbmc.PLAYLIST_MUSIC)
+            playlist.clear()
+            for action, item_url in (("previous", self.http.control_url("previous", generation)),
+                                     (None, url),
+                                     ("next", self.http.control_url("next", generation))):
+                li = self._listitem(url) if action is None else self._sentinel(action, item_url)
+                playlist.add(item_url, li)
+            self.player.play(playlist, startpos=1)
+        else:
+            self.player.play(url, self._listitem(url))
         self._output_running = True
 
     def _stop_kodi_player(self):
@@ -322,6 +358,8 @@ class Bridge(Listener):
             self.client.send_controller(command)
 
     def _stop_is_ours(self):
+        log.debug("stop check: expect_stop=%s since_play=%.1fs", self._expect_stop,
+                  time.monotonic() - self._last_play_call)
         with self._lock:
             expected = self._expect_stop or (time.monotonic() - self._last_play_call) < 4.0
             self._expect_stop = False
@@ -333,6 +371,8 @@ class Bridge(Listener):
         self._output_running = False
         with self._lock:
             ours = self._current_url is not None
+        log.debug("Kodi stopped: expected=%s was_running=%s ours=%s active=%s", expected, was_running,
+                  ours, self.pipeline.active)
         if ours and was_running and not expected and self.pipeline.active:
             log.info("user stopped playback in Kodi - asking Music Assistant to stop")
             self.user_action("stop")
@@ -408,6 +448,10 @@ class Bridge(Listener):
         ours = self.is_our_item()
         if ours:
             self._auto_sync()
+            with self._lock:
+                # our item is up and settled: from now on a stop is the user's
+                if time.monotonic() - self._last_play_call > 4.0:
+                    self._expect_stop = False
         self._output_running = ours
         busy = _setting_bool("yield_to_video", True) and self.other_media_playing()
         self.client.set_available(not busy)

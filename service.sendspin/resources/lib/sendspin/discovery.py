@@ -68,7 +68,7 @@ def discover(timeout=3.0):
     sock.settimeout(0.3)
     query = struct.pack(">HHHHHH", random.randint(0, 0xFFFF), 0, 1, 0, 0, 0)
     query += _encode_name(SERVICE) + struct.pack(">HH", T_PTR, 0x8001)  # QU bit: unicast reply
-    instances, srv, txt, addrs = set(), {}, {}, {}
+    found = {"instances": set(), "srv": {}, "txt": {}, "addrs": {}}
     try:
         sock.sendto(query, (MDNS_ADDR, MDNS_PORT))
         deadline = time.time() + timeout
@@ -77,42 +77,68 @@ def discover(timeout=3.0):
                 data, _ = sock.recvfrom(9000)
             except socket.timeout:
                 continue
-            try:
-                records = _parse(data)
-            except (IndexError, struct.error):
-                continue
-            for name, rtype, off, rdlen in records:
-                if rtype == T_PTR and name == SERVICE.lower():
-                    inst, _ = _read_name(data, off)
-                    instances.add(inst.lower())
-                elif rtype == T_SRV:
-                    _prio, _weight, port = struct.unpack(">HHH", data[off:off + 6])
-                    target, _ = _read_name(data, off + 6)
-                    srv[name] = (target.lower(), port)
-                elif rtype == T_TXT:
-                    entries, p = {}, off
-                    while p < off + rdlen:
-                        n = data[p]
-                        kv = data[p + 1:p + 1 + n].decode("utf-8", "replace")
-                        k, _, v = kv.partition("=")
-                        entries[k] = v
-                        p += 1 + n
-                    txt[name] = entries
-                elif rtype == T_A and rdlen == 4:
-                    addrs[name] = socket.inet_ntoa(data[off:off + 4])
-            if instances and all(i in srv for i in instances):
+            _collect(data, found)
+            if found["instances"] and all(_complete(i, found) for i in found["instances"]):
                 break
     except OSError as exc:
         log.warning("mDNS discovery failed: %s", exc)
     finally:
         sock.close()
+    return _servers(found)
+
+
+def _collect(data, found):
+    """Add the records in one mDNS reply to ``found``; malformed packets or records are skipped."""
+    try:
+        records = _parse(data)
+    except (IndexError, ValueError, struct.error):
+        return
+    for name, rtype, off, rdlen in records:
+        try:
+            _decode_record(data, name, rtype, off, rdlen, found)
+        except (IndexError, ValueError, struct.error):
+            continue  # a malformed record from some device on the LAN
+
+
+def _decode_record(data, name, rtype, off, rdlen, found):
+    if off + rdlen > len(data):
+        raise ValueError("truncated record")
+    if rtype == T_PTR and name == SERVICE.lower():
+        inst, _ = _read_name(data, off)
+        found["instances"].add(inst.lower())
+    elif rtype == T_SRV:
+        if rdlen < 7:
+            raise ValueError("short SRV record")
+        _prio, _weight, port = struct.unpack(">HHH", data[off:off + 6])
+        target, _ = _read_name(data, off + 6)
+        found["srv"][name] = (target.lower(), port)
+    elif rtype == T_TXT:
+        entries, p = {}, off
+        while p < off + rdlen:
+            n = data[p]
+            kv = data[p + 1:p + 1 + n].decode("utf-8", "replace")
+            k, _, v = kv.partition("=")
+            entries[k] = v
+            p += 1 + n
+        found["txt"][name] = entries
+    elif rtype == T_A and rdlen == 4:
+        found["addrs"][name] = socket.inet_ntoa(data[off:off + 4])
+
+
+def _complete(inst, found):
+    """True once an instance has its port, TXT (path) and an IPv4 address: no .local lookup needed."""
+    srv = found["srv"].get(inst)
+    return srv is not None and inst in found["txt"] and srv[0] in found["addrs"]
+
+
+def _servers(found):
     servers = []
-    for inst in instances:
-        if inst not in srv:
+    for inst in found["instances"]:
+        if inst not in found["srv"]:
             continue
-        target, port = srv[inst]
-        host = addrs.get(target) or target.rstrip(".")
-        meta = txt.get(inst, {})
+        target, port = found["srv"][inst]
+        host = found["addrs"].get(target) or target.rstrip(".")
+        meta = found["txt"].get(inst, {})
         path = meta.get("path", "/sendspin") or "/sendspin"
         servers.append({
             "name": meta.get("name") or inst.split(".")[0],
@@ -121,4 +147,3 @@ def discover(timeout=3.0):
             "url": "ws://%s:%d%s" % (host, port, path if path.startswith("/") else "/" + path),
         })
     return servers
-

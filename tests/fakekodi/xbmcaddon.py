@@ -7,7 +7,7 @@ class Addon:
     def __init__(self, id=None): pass
     def getAddonInfo(self, key):
         return {"id": "service.sendspin", "path": ROOT, "icon": os.path.join(ROOT, "resources", "icon.png"),
-                "profile": "/tmp/fakekodi-profile/", "version": "1.0.0", "name": "Kodi-Sendspin"}[key]
+                "profile": "/tmp/fakekodi-profile/", "version": "1.0.1", "name": "Kodi-Sendspin"}[key]
     def getLocalizedString(self, sid):
         po = os.path.join(ROOT, "resources", "language", "resource.language.en_gb", "strings.po")
         text = open(po, encoding="utf-8").read()

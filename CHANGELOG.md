@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.1, 2026-10-11
+- WebSocket messages are size-limited (a misbehaving server can no longer exhaust memory)
+- mDNS discovery ignores malformed replies and waits for the server's address and path
+- A discovered server that stays unreachable for 2 minutes is looked up again (new IP after a restart)
+- A failed session always closes its socket, so its helper threads stop before a reconnect
+- Music never takes over if a video starts while the stream is being prepared
+- Repeated Kodi Next/Previous presses are no longer swallowed
+- Server URLs like `host/path` get the default port in the right place
+- "Connected" notification localised; "No Music Assistant found" shown once, not every minute
+
 ## 1.0.0, 2026-10-11
 - Named **Kodi-Sendspin**
 - Official Sendspin logo for the icon and fanart

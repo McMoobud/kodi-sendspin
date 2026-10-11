@@ -8,7 +8,7 @@ with title, artist and artwork on Kodi's own *Now Playing* screen.
 
 ![Kodi Now Playing driven by Music Assistant over Sendspin](docs/now-playing.png)
 
-> **Status: v1.0.0.** It works end-to-end against Music Assistant 2.10.4
+> **Status: v1.0.1.** It works end-to-end against Music Assistant 2.10.4
 > on Kodi 20.1 (Linux test box), on a Fire TV running Kodi 21.2, and on Kodi 22 (Piers). See
 > [Test results](#test-results) and [Known limitations](#known-limitations).
 
@@ -33,7 +33,7 @@ Release zips are also on the [Releases page](https://github.com/McMoobud/kodi-se
 
 1. Build or download `service.sendspin-<version>.zip`:
    ```bash
-   python3 tools/build_zip.py        # -> dist/service.sendspin-1.0.0.zip
+   python3 tools/build_zip.py        # -> dist/service.sendspin-1.0.1.zip
    ```
 2. In Kodi: **Settings → System → Add-ons → Unknown sources: on**.
 3. **Settings → Add-ons → Install from zip file →** pick the zip.
@@ -42,7 +42,7 @@ Release zips are also on the [Releases page](https://github.com/McMoobud/kodi-se
 
 ### Fire TV notes
 
-- Copy the zip to the Fire TV (for example with *Send Files to TV*, or `adb push service.sendspin-1.0.0.zip /sdcard/Download/`).
+- Copy the zip to the Fire TV (for example with *Send Files to TV*, or `adb push service.sendspin-1.0.1.zip /sdcard/Download/`).
 - The add-on only runs **while the Kodi app is running**. Android may suspend Kodi when another
   app is in the foreground.
 - Your TV/AV receiver adds its own delay that Kodi cannot see. If Kodi sounds slightly behind
@@ -107,7 +107,7 @@ Run against a live Music Assistant 2.10.4 (aiosendspin 9.1.1):
 
 | Test | Result |
 |---|---|
-| Unit tests (`python3 -m unittest discover -s tests`) | ✅ 5/5 |
+| Unit tests (`python3 -m unittest discover -s tests`) | ✅ 16/16 |
 | Headless client (`tests/harness.py`): 80 s radio | ✅ 0.992× real-time, 0 late drops, real audio (RMS 5939) |
 | Fake-Kodi end-to-end (`tests/e2e_service.py`) | ✅ play, MA volume, yield to video, Kodi stop → MA stop |
 | Real Kodi: remote **Next/Previous** | ✅ one press = one MA skip (Kodi probes playlist items twice; de-duplicated) |

@@ -206,7 +206,8 @@ class SendspinClient:
             if self._stop.is_set() or ws.closed:
                 return
             try:
-                self._send({"type": "client/time", "payload": {"client_transmitted": now_us()}})
+                ws.send_text(json.dumps({"type": "client/time", "payload": {"client_transmitted": now_us()}},
+                                        separators=(",", ":")))
             except WebSocketError:
                 return
             if self._stop.wait(d):
@@ -236,20 +237,23 @@ class SendspinClient:
     def _session(self):
         ws = WebSocket(self.url)
         ws.connect()
-        self._ws = ws
-        log.info("connected to %s", self.url)
-        self._send(self._hello())
-        threading.Thread(target=self._timesync_loop, args=(ws,), name="sendspin-time", daemon=True).start()
-        self._last_rx = now_us()
-        threading.Thread(target=self._watchdog, args=(ws,), name="sendspin-watchdog", daemon=True).start()
-        while not self._stop.is_set():
-            op, data = ws.recv()
-            rx = now_us()
-            self._last_rx = rx
-            if op == OP_BINARY:
-                self._on_binary(data)
-            elif op == OP_TEXT:
-                self._on_text(json.loads(data), rx)
+        try:
+            self._ws = ws
+            log.info("connected to %s", self.url)
+            self._send(self._hello())
+            threading.Thread(target=self._timesync_loop, args=(ws,), name="sendspin-time", daemon=True).start()
+            self._last_rx = now_us()
+            threading.Thread(target=self._watchdog, args=(ws,), name="sendspin-watchdog", daemon=True).start()
+            while not self._stop.is_set():
+                op, data = ws.recv()
+                rx = now_us()
+                self._last_rx = rx
+                if op == OP_BINARY:
+                    self._on_binary(data)
+                elif op == OP_TEXT:
+                    self._on_text(json.loads(data), rx)
+        finally:
+            ws.close()  # ends this session's time and watchdog threads before any reconnect
 
     def _on_binary(self, data):
         if len(data) < 9 or data[0] != BIN_AUDIO_CHUNK:

@@ -24,6 +24,9 @@ OP_PING = 0x9
 OP_PONG = 0xA
 
 
+# Sendspin messages are small (audio chunks are a few KB); anything bigger is not a real server.
+MAX_MESSAGE_BYTES = 4 * 1024 * 1024
+
 class WebSocketError(Exception):
     """Raised for protocol errors or a closed connection."""
 
@@ -159,6 +162,7 @@ class WebSocket:
         """Return ``(opcode, payload)`` for the next complete TEXT/BINARY message."""
         message_op = None
         parts = []
+        total = 0
         while True:
             b1, b2 = self._read_exact(2)
             fin = b1 & 0x80
@@ -169,6 +173,10 @@ class WebSocket:
                 n = struct.unpack(">H", self._read_exact(2))[0]
             elif n == 127:
                 n = struct.unpack(">Q", self._read_exact(8))[0]
+            total += n
+            if n > MAX_MESSAGE_BYTES or total > MAX_MESSAGE_BYTES:
+                self._shutdown()
+                raise WebSocketError("message too large (%d bytes)" % total)
             mask = self._read_exact(4) if masked else None
             payload = self._read_exact(n) if n else b""
             if mask:
@@ -188,6 +196,7 @@ class WebSocket:
             if opcode in (OP_TEXT, OP_BINARY):
                 message_op = opcode
                 parts = [payload]
+                total = n
             elif opcode == OP_CONT:
                 parts.append(payload)
             if fin and message_op is not None:

@@ -6,6 +6,7 @@ import queue
 import socket
 import threading
 import time
+import urllib.parse
 import uuid
 
 import xbmc
@@ -136,6 +137,8 @@ class SendspinPlayer(xbmc.Player):
 class Bridge(Listener):
     """Owns pipeline + HTTP server + Sendspin client and drives Kodi."""
 
+    SKIP_DEDUP_S = 2.0  # Kodi's probe + open of one sentinel arrive well within this
+
     def __init__(self):
         self.clock = ClockSync()
         self.pipeline = AudioPipeline(
@@ -157,6 +160,7 @@ class Bridge(Listener):
         self._restarts = []
         self._output_running = False
         self._last_skip_path = None
+        self._last_skip_at = 0.0
         self._last_play_call = 0.0
         self._sync_gen, self._sync_since, self._sync_samples, self._sync_last = None, 0.0, [], 0.0
         self._queue = queue.Queue()
@@ -235,10 +239,11 @@ class Bridge(Listener):
     def on_remote_skip(self, action, path=None):
         """HTTP thread: Kodi opened a sentinel -> skip in MA; MA then restarts our stream."""
         with self._lock:
-            # Kodi opens a playlist item twice (probe + open): one button press = one skip
-            if path is not None and path == self._last_skip_path:
+            # Kodi opens a playlist item twice (probe + open) within a moment: one press = one skip
+            now = time.monotonic()
+            if path is not None and path == self._last_skip_path and now - self._last_skip_at < self.SKIP_DEDUP_S:
                 return
-            self._last_skip_path = path
+            self._last_skip_path, self._last_skip_at = path, now
         log.info("Kodi %s button -> Music Assistant", action)
         with self._lock:
             self._expect_stop = True
@@ -257,6 +262,9 @@ class Bridge(Listener):
             log.warning("previous stream still has readers - starting anyway")
         if self.pipeline.generation != generation or not self.pipeline.active:
             log.info("generation %d is stale - not starting Kodi", generation)
+            return
+        if _setting_bool("yield_to_video", True) and self.other_media_playing():
+            log.info("other media started while waiting - not taking over playback")
             return
         with self._lock:
             self._current_url = url
@@ -300,7 +308,7 @@ class Bridge(Listener):
         return self._output_running
 
     def on_connected(self, server_name):
-        self._post(notify, "Connected to %s" % server_name)
+        self._post(notify, L(30200) % server_name)
 
     def on_disconnected(self):
         self._post(self._stop_kodi_player)
@@ -447,6 +455,10 @@ class Bridge(Listener):
             self._sync_samples = []
             self._sync_since = now  # wait for Kodi to settle again before re-measuring
 
+    @property
+    def connected(self):
+        return bool(self.client and self.client.connected)
+
     def tick(self):
         """Called ~1/s from the service loop."""
         if self.client is None:
@@ -463,17 +475,34 @@ class Bridge(Listener):
         self.client.set_available(not busy)
 
 
+def normalise_server_url(text):
+    """'host', 'host:port', 'host/path' or a full ws:// URL -> ws://host:port/path."""
+    text = text.strip()
+    if "://" not in text:
+        text = "ws://" + text
+    parts = urllib.parse.urlsplit(text)
+    host = parts.hostname
+    if not host:
+        return None
+    if ":" in host:
+        host = "[%s]" % host  # IPv6 literal
+    try:
+        port = parts.port or 8927
+    except ValueError:
+        return None
+    path = parts.path if parts.path not in ("", "/") else "/sendspin"
+    return "ws://%s:%d%s" % (host, port, path)
+
+
 def resolve_server_url():
     url = _setting_str("server_url")
     if url:
-        if not url.startswith("ws://"):
-            url = "ws://" + url
-        if url.count(":") == 1:  # no port given
-            url += ":8927"
-        if "/" not in url[5:]:
-            url += "/sendspin"
-        return url
-    servers = discover()
+        return normalise_server_url(url)
+    try:
+        servers = discover()
+    except Exception:  # noqa: BLE001 - discovery must never stop the service
+        log.exception("discovery failed")
+        servers = []
     if servers:
         log.info("discovered %s", servers)
         return servers[0]["url"]

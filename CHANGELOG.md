@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.3, 2026-10-13
+- A WebSocket message split into endless empty fragments is rejected (memory could grow without limit)
+- The audio queue has a hard size limit, so far-future audio from a misbehaving server cannot exhaust memory
+- Only an audio format offered in `client/hello` is accepted, and partial sample frames are dropped
+- One bad stream can no longer stop audio output until Kodi restarts
+- Shutdown and settings changes never wait on a server that has stopped reading
+- A mistyped server URL (for example `ws://[::1`) is treated as invalid instead of stopping the service
+
 ## 1.0.2, 2026-10-11
 - New Kodi-Sendspin artwork: icon, fanart, banner and clear logo
 

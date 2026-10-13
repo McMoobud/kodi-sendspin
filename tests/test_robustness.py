@@ -35,6 +35,11 @@ class ServerUrlTest(unittest.TestCase):
         self.assertIsNone(n("host:notaport"))
         self.assertIsNone(n("ws://"))
 
+    def test_typos_are_invalid_not_fatal(self):
+        n = kodi_bridge.normalise_server_url
+        self.assertIsNone(n("ws://[::1"))
+        self.assertIsNone(n("[fe80::1"))
+
 
 def _name(name):
     return discovery._encode_name(name)
@@ -132,6 +137,18 @@ class WebSocketLimitTest(unittest.TestCase):
         with self.assertRaises(websocket.WebSocketError):
             _ws_with(first + cont * count).recv()
 
+    def test_empty_continuation_flood_rejected(self):
+        first = bytes([0x02, 1]) + b"x"   # BINARY, not FIN
+        empty = bytes([0x00, 0])          # CONT, not FIN, no payload
+        last = bytes([0x80, 1]) + b"y"    # CONT, FIN
+        with self.assertRaises(websocket.WebSocketError):
+            _ws_with(first + empty * (websocket.MAX_FRAGMENTS + 5) + last).recv()
+
+    def test_continuation_without_message_rejected(self):
+        orphan = bytes([0x80, 1]) + b"x"  # CONT, FIN, but no message started
+        with self.assertRaises(websocket.WebSocketError):
+            _ws_with(orphan + bytes([0x81, 5]) + b"hello").recv()
+
     def test_normal_message(self):
         payload = b"hello"
         ws = _ws_with(bytes([0x81, len(payload)]) + payload)
@@ -188,6 +205,85 @@ class SessionCleanupTest(unittest.TestCase):
             self.assertEqual(ws.sent, before)
         finally:
             client_mod.WebSocket = real
+
+
+class _StuckSock:
+    """A server that stopped reading: writes block until the socket is shut down."""
+
+    def __init__(self):
+        self.down = threading.Event()
+
+    def sendall(self, data):
+        self.down.wait()
+        raise OSError("socket shut down")
+
+    def recv(self, n):
+        self.down.wait()
+        return b""
+
+    def shutdown(self, how):
+        self.down.set()
+
+    def close(self):
+        self.down.set()
+
+
+class StopTest(unittest.TestCase):
+    def test_stop_does_not_wait_on_a_stalled_server(self):
+        c = SendspinClient("ws://x", "id", "name", _Pipeline())
+        ws = websocket.WebSocket("ws://x")
+        ws._sock, ws.closed = _StuckSock(), False
+        c._ws = ws
+        done = threading.Event()
+        threading.Thread(target=lambda: (c.stop(), done.set()), daemon=True).start()
+        self.assertTrue(done.wait(3), "stop() hung on a blocked write")
+        self.assertTrue(ws.closed)
+
+
+class _RecPipeline(_Pipeline):
+    fmt = None
+
+    def __init__(self):
+        self.calls = []
+
+    def start(self, fmt, continuous=False):
+        self.calls.append(("start", fmt))
+        self.fmt = fmt
+        return 1, False
+
+    def end(self):
+        self.calls.append(("end",))
+
+    def push(self, ts, pcm):
+        self.calls.append(("push", len(pcm)))
+
+
+class StreamFormatTest(unittest.TestCase):
+    def _start(self, pipeline, **player):
+        c = SendspinClient("ws://x", "id", "name", pipeline)
+        p = {"codec": "pcm", "channels": 2, "sample_rate": 48000, "bit_depth": 16}
+        p.update(player)
+        c._on_text({"type": "stream/start", "payload": {"player": p}}, 0)
+        return c
+
+    def test_offered_format_accepted(self):
+        pl = _RecPipeline()
+        self._start(pl)
+        self.assertEqual(pl.calls[0][0], "start")
+
+    def test_format_not_offered_is_rejected(self):
+        for bad in ({"sample_rate": 0}, {"channels": 0}, {"bit_depth": 12}, {"codec": "flac"}):
+            pl = _RecPipeline()
+            self._start(pl, **bad)
+            self.assertEqual(pl.calls, [("end",)], bad)
+
+    def test_partial_frames_dropped(self):
+        pl = _RecPipeline()
+        c = self._start(pl)
+        head = bytes([4]) + struct.pack(">q", 0)
+        c._on_binary(head + bytes(40))  # 10 whole 16-bit stereo frames
+        c._on_binary(head + bytes(41))
+        self.assertEqual([x for x in pl.calls if x[0] == "push"], [("push", 40)])
 
 
 class SkipDedupTest(unittest.TestCase):

@@ -480,16 +480,16 @@ def normalise_server_url(text):
     text = text.strip()
     if "://" not in text:
         text = "ws://" + text
-    parts = urllib.parse.urlsplit(text)
-    host = parts.hostname
+    try:
+        parts = urllib.parse.urlsplit(text)
+        host = parts.hostname
+        port = parts.port or 8927
+    except ValueError:  # e.g. "ws://[::1" or a port that is not a number
+        return None
     if not host:
         return None
     if ":" in host:
         host = "[%s]" % host  # IPv6 literal
-    try:
-        port = parts.port or 8927
-    except ValueError:
-        return None
     path = parts.path if parts.path not in ("", "/") else "/sendspin"
     return "ws://%s:%d%s" % (host, port, path)
 

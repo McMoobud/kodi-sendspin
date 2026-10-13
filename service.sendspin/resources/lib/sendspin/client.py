@@ -97,13 +97,22 @@ class SendspinClient:
         self._stop.set()
         ws = self._ws
         if ws is not None:
-            try:
-                self._send({"type": "client/goodbye", "payload": {"reason": "shutdown"}})
-            except Exception:  # noqa: BLE001
-                pass
-            ws.close()
+            # Say goodbye if the server is listening, but never let a stalled one hold up shutdown.
+            goodbye = threading.Thread(target=self._goodbye, args=(ws,), name="sendspin-goodbye", daemon=True)
+            goodbye.start()
+            goodbye.join(1.0)
+            ws.abort()
         if self._thread is not None:
             self._thread.join(timeout=5)
+
+    @staticmethod
+    def _goodbye(ws):
+        try:
+            ws.send_text(json.dumps({"type": "client/goodbye", "payload": {"reason": "shutdown"}},
+                                    separators=(",", ":")))
+            ws.close()
+        except Exception:  # noqa: BLE001 - best effort
+            pass
 
     def _run(self):
         backoff = 1.0
@@ -112,7 +121,8 @@ class SendspinClient:
                 self._session()
                 backoff = 1.0
             except (WebSocketError, OSError, ValueError) as exc:
-                log.warning("connection to %s failed: %s", self.url, exc)
+                if not self._stop.is_set():  # stop() closing the socket is not a failure
+                    log.warning("connection to %s failed: %s", self.url, exc)
             except Exception:  # noqa: BLE001 - never let the thread die
                 log.exception("unexpected client error")
             finally:
@@ -259,7 +269,18 @@ class SendspinClient:
         if len(data) < 9 or data[0] != BIN_AUDIO_CHUNK:
             return
         ts = struct.unpack(">q", data[1:9])[0]
-        self.pipeline.push(ts, data[9:])
+        pcm = data[9:]
+        fmt = getattr(self.pipeline, "fmt", None)
+        if fmt is not None and len(pcm) % fmt.frame_bytes:
+            return  # not whole sample frames: not audio we can play
+        self.pipeline.push(ts, pcm)
+
+    def _accept_format(self, player):
+        """The stream format, if it is one we offered in client/hello; otherwise None."""
+        chosen = {k: player.get(k) for k in ("codec", "channels", "sample_rate", "bit_depth")}
+        if chosen not in self.formats:
+            return None
+        return AudioFormat(chosen["sample_rate"], chosen["channels"], chosen["bit_depth"])
 
     def _on_text(self, msg, rx):
         typ = msg.get("type")
@@ -276,10 +297,12 @@ class SendspinClient:
         elif typ == "stream/start":
             player = payload.get("player")
             if player:
-                if player.get("codec") != "pcm":
-                    log.error("unsupported codec %s", player.get("codec"))
+                fmt = self._accept_format(player)
+                if fmt is None:
+                    log.error("unsupported stream format %s", player)
+                    self.pipeline.end()
+                    self.listener.on_stream_end()
                     return
-                fmt = AudioFormat(player["sample_rate"], player["channels"], player["bit_depth"])
                 gen, continuous = self.pipeline.start(fmt, continuous=self.listener.output_running())
                 self.listener.on_stream_start(fmt, gen, continuous)
         elif typ == "stream/clear":

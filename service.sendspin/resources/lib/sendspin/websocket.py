@@ -26,6 +26,8 @@ OP_PONG = 0xA
 
 # Sendspin messages are small (audio chunks are a few KB); anything bigger is not a real server.
 MAX_MESSAGE_BYTES = 4 * 1024 * 1024
+# Empty fragments add no bytes, so the number of frames in one message is capped as well.
+MAX_FRAGMENTS = 1024
 
 class WebSocketError(Exception):
     """Raised for protocol errors or a closed connection."""
@@ -87,7 +89,7 @@ class WebSocket:
         expect = base64.b64encode(hashlib.sha1((key + _GUID).encode()).digest()).decode()
         if headers.get("sec-websocket-accept") != expect:
             raise WebSocketError("bad Sec-WebSocket-Accept")
-        sock.settimeout(None)
+        sock.settimeout(self._timeout)  # bounds writes; recv() simply retries on an idle line
         self._sock = sock
         self._rbuf = rest
         self.closed = False
@@ -99,6 +101,10 @@ class WebSocket:
             self._send_frame(OP_CLOSE, struct.pack(">H", code))
         except Exception:  # noqa: BLE001 - best effort
             pass
+        self._shutdown()
+
+    def abort(self):
+        """Drop the connection without the closing handshake (never blocks)."""
         self._shutdown()
 
     def _shutdown(self):
@@ -134,20 +140,30 @@ class WebSocket:
         mask = os.urandom(4)
         header += mask
         masked = _mask(payload, mask)
-        with self._send_lock:
-            try:
-                self._sock.sendall(bytes(header) + masked)
-            except OSError as exc:
-                self._shutdown()
-                raise WebSocketClosed(str(exc)) from exc
+        if not self._send_lock.acquire(timeout=self._timeout):
+            self._shutdown()
+            raise WebSocketClosed("send timed out")
+        try:
+            sock = self._sock
+            if sock is None:
+                raise WebSocketClosed("not connected")
+            sock.sendall(bytes(header) + masked)
+        except OSError as exc:
+            self._shutdown()
+            raise WebSocketClosed(str(exc)) from exc
+        finally:
+            self._send_lock.release()
 
     # -- receiving --------------------------------------------------------
     def _read_exact(self, n):
         while len(self._rbuf) < n:
-            if self._sock is None:
+            sock = self._sock
+            if sock is None:
                 raise WebSocketClosed("socket closed")
             try:
-                chunk = self._sock.recv(max(65536, n - len(self._rbuf)))
+                chunk = sock.recv(max(65536, n - len(self._rbuf)))
+            except socket.timeout:
+                continue  # nothing to read yet; the timeout is only there to bound writes
             except OSError as exc:
                 self._shutdown()
                 raise WebSocketClosed(str(exc)) from exc
@@ -163,10 +179,16 @@ class WebSocket:
         message_op = None
         parts = []
         total = 0
+        fragments = 0
         while True:
             b1, b2 = self._read_exact(2)
             fin = b1 & 0x80
             opcode = b1 & 0x0F
+            if opcode == OP_CONT:
+                fragments += 1
+                if message_op is None or fragments > MAX_FRAGMENTS:
+                    self._shutdown()
+                    raise WebSocketError("bad fragmented message")
             masked = b2 & 0x80
             n = b2 & 0x7F
             if n == 126:
@@ -197,6 +219,7 @@ class WebSocket:
                 message_op = opcode
                 parts = [payload]
                 total = n
+                fragments = 0
             elif opcode == OP_CONT:
                 parts.append(payload)
             if fin and message_op is not None:

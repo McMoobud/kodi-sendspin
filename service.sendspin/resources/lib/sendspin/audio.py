@@ -41,6 +41,8 @@ class AudioFormat:
         self.sample_rate = int(sample_rate)
         self.channels = int(channels)
         self.bit_depth = int(bit_depth)
+        if self.sample_rate <= 0 or self.channels <= 0 or self.bit_depth <= 0 or self.bit_depth % 8:
+            raise ValueError("bad audio format %r" % self)
 
     @property
     def frame_bytes(self):
@@ -107,10 +109,13 @@ def volume_to_gain(volume, muted):
 class AudioPipeline:
     """Holds timestamped chunks and hands out time-aligned PCM to the HTTP writer."""
 
-    def __init__(self, clock, lead_ms=800, static_delay_ms=0):
+    def __init__(self, clock, lead_ms=800, static_delay_ms=0, max_queue_bytes=4_000_000):
         self._clock = clock
         self._cond = threading.Condition()
         self._chunks = deque()  # [server_ts_us, pcm]
+        self._queued = 0  # bytes in _chunks
+        # Twice the buffer_capacity the client advertises: a real server never gets near it.
+        self.max_queue_bytes = max_queue_bytes
         self.fmt = None
         self.generation = 0
         self.active = False
@@ -121,7 +126,8 @@ class AudioPipeline:
         self._cursor = None  # local µs up to which audio has been written
         self.last_block_start = None  # local play time of the last block returned
         self._adjust_bytes = 0  # >0: drop this much output (Kodi late); <0: insert silence (early)
-        self.stats = {"received": 0, "written": 0, "dropped_late": 0, "silence_us": 0, "trimmed": 0}
+        self.stats = {"received": 0, "written": 0, "dropped_late": 0, "dropped_full": 0, "silence_us": 0,
+                      "trimmed": 0}
 
     # -- control (protocol thread) ----------------------------------------
     def start(self, fmt, continuous=False):
@@ -134,6 +140,7 @@ class AudioPipeline:
             keep = continuous and self.active and self.fmt == fmt and self._cursor is not None \
                 and self._cursor > now_us()
             self._chunks = deque()
+            self._queued = 0
             if not keep:
                 self.fmt = fmt
                 self._cursor = None
@@ -149,6 +156,7 @@ class AudioPipeline:
         """Seek / skip: drop queued audio but keep Kodi's stream and the timeline."""
         with self._cond:
             self._chunks = deque()
+            self._queued = 0
             self._cond.notify_all()
         log.info("stream clear (generation %d)", self.generation)
         return self.generation
@@ -157,6 +165,7 @@ class AudioPipeline:
         with self._cond:
             self.active = False
             self._chunks = deque()
+            self._queued = 0
             self._cursor = None
             self._cond.notify_all()
         log.info("stream end")
@@ -165,9 +174,16 @@ class AudioPipeline:
         with self._cond:
             if not self.active:
                 return
+            if self._queued + len(pcm) > self.max_queue_bytes:
+                self.stats["dropped_full"] += 1
+                return
             self._chunks.append([server_ts, pcm])
+            self._queued += len(pcm)
             self.stats["received"] += 1
             self._cond.notify_all()
+
+    def _pop(self):
+        self._queued -= len(self._chunks.popleft()[1])
 
     def buffered_us(self):
         with self._cond:
@@ -231,11 +247,11 @@ class AudioPipeline:
                         continue
                     dur = fmt.duration_us(len(pcm))
                     if start + dur < now - LATE_DROP_US:
-                        self._chunks.popleft()
+                        self._pop()
                         self.stats["dropped_late"] += 1
                         continue
                     if start <= release_horizon:
-                        self._chunks.popleft()
+                        self._pop()
                         return self._emit(fmt, start, dur, pcm)
                     # Not due yet: maybe we must fill silence so Kodi keeps playing.
                     fill = self._starvation_fill(fmt, now, release_horizon)
@@ -326,48 +342,60 @@ class Broadcaster:
 
     def _pump(self):
         while not self._stop.is_set():
-            gen = self.pipeline.generation
-            if not self.pipeline.active or self.pipeline.fmt is None:
+            try:
+                self._pump_generation()
+            except Exception:  # noqa: BLE001 - one bad stream must not stop audio for good
+                log.exception("audio pump failed; dropping the stream")
+                self.pipeline.end()
                 with self._cond:
-                    if not self._closed:
-                        self._closed = True
-                        self._cond.notify_all()
-                self._stop.wait(0.02)
-                continue
-            with self._cond:
-                self._ring.clear()
-                self.index.clear()
-                self.reader_starts = []
-                self._end = 0
-                self._generation = gen
-                self._fmt = self.pipeline.fmt
-                self._closed = False
-                self._cond.notify_all()
-            ring_limit = int(self._fmt.sample_rate * self._fmt.frame_bytes * self.RING_SECONDS)
-            self._open_timeline(gen)
-            while not self._stop.is_set():
-                block = self.pipeline.next_block(gen)
-                if block is None:
-                    break
-                if not block:
-                    continue
-                t_start = self.pipeline.last_block_start
-                self._log_timeline(t_start, block)
-                with self._cond:
-                    if t_start is not None:
-                        self.index.append((self._end, t_start))
-                        while len(self.index) > 4000:
-                            self.index.popleft()
-                    self._ring.append((self._end, block, t_start))
-                    self._end += len(block)
-                    while self._ring and self._end - self._ring[0][0] > ring_limit:
-                        self._ring.popleft()
-                    self._cond.notify_all()
-            with self._cond:
-                if self._generation == gen:
                     self._closed = True
                     self._cond.notify_all()
-            log.debug("pump: generation %d closed (end=%d bytes)", gen, self._end)
+                self._stop.wait(0.1)
+
+    def _pump_generation(self):
+        """Wait for a stream, then release its audio until that generation ends."""
+        gen = self.pipeline.generation
+        if not self.pipeline.active or self.pipeline.fmt is None:
+            with self._cond:
+                if not self._closed:
+                    self._closed = True
+                    self._cond.notify_all()
+            self._stop.wait(0.02)
+            return
+        with self._cond:
+            self._ring.clear()
+            self.index.clear()
+            self.reader_starts = []
+            self._end = 0
+            self._generation = gen
+            self._fmt = self.pipeline.fmt
+            self._closed = False
+            self._cond.notify_all()
+        ring_limit = int(self._fmt.sample_rate * self._fmt.frame_bytes * self.RING_SECONDS)
+        self._open_timeline(gen)
+        while not self._stop.is_set():
+            block = self.pipeline.next_block(gen)
+            if block is None:
+                break
+            if not block:
+                continue
+            t_start = self.pipeline.last_block_start
+            self._log_timeline(t_start, block)
+            with self._cond:
+                if t_start is not None:
+                    self.index.append((self._end, t_start))
+                    while len(self.index) > 4000:
+                        self.index.popleft()
+                self._ring.append((self._end, block, t_start))
+                self._end += len(block)
+                while self._ring and self._end - self._ring[0][0] > ring_limit:
+                    self._ring.popleft()
+                self._cond.notify_all()
+        with self._cond:
+            if self._generation == gen:
+                self._closed = True
+                self._cond.notify_all()
+        log.debug("pump: generation %d closed (end=%d bytes)", gen, self._end)
 
     def _open_timeline(self, gen):
         if not self.timeline_dir:

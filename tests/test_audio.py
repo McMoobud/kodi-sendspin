@@ -84,6 +84,38 @@ class AudioTests(unittest.TestCase):
     def tearDown(self):
         self.server.stop()
 
+    def test_bad_format_rejected(self):
+        for args in ((0, 2, 16), (44100, 0, 16), (44100, 2, 12)):
+            with self.assertRaises(ValueError):
+                AudioFormat(*args)
+
+    def test_queue_is_capped(self):
+        p = AudioPipeline(FakeClock(), lead_ms=500, max_queue_bytes=100_000)
+        p.start(FMT)
+        far = now_us() + 3_600_000_000  # an hour ahead: never due
+        for i in range(100):
+            p.push(far + i * CHUNK_US, chunk())
+        self.assertLessEqual(sum(len(c[1]) for c in p._chunks), 100_000)
+        self.assertGreater(p.stats["dropped_full"], 0)
+
+    def test_pump_survives_a_bad_stream(self):
+        bad = AudioFormat(44100, 2, 16)
+        bad.sample_rate = 0  # slip past validation to reach the pump
+        self.pipeline.start(bad)
+        self.pipeline.push(now_us() + 100_000, chunk())
+        time.sleep(0.5)
+        self.assertFalse(self.pipeline.active)  # the bad stream was dropped...
+        self.assertTrue(self.server.broadcaster._thread.is_alive())  # ...and the pump lives on
+        self.pipeline.start(FMT)
+        feeder = Feeder(self.pipeline, 1.5)
+        feeder.start()
+        reader = Reader(self.server.url(self.pipeline.generation))
+        reader.start()
+        feeder.join()
+        self.pipeline.end()
+        reader.join(5)
+        self.assertGreater(reader.bytes, 0)
+
     def test_gain(self):
         pcm = struct.pack("<4h", 1000, -1000, 32767, -32768)
         self.assertEqual(apply_gain(pcm, 2, 1.0), pcm)

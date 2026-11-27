@@ -37,6 +37,39 @@
                 </setting>
             </group>
         </category>
+        <category id="security" label="30020">
+            <group id="1">
+                <setting id="connection" type="integer" label="30007" help="30107">
+                    <level>0</level>
+                    <default>0</default>
+                    <constraints>
+                        <options>
+                            <option label="30030">0</option>
+                            <option label="30031">1</option>
+                            <option label="30032">2</option>
+                        </options>
+                    </constraints>
+                    <control type="list" format="string"><heading>30007</heading></control>
+                </setting>
+                <setting id="unpaired_access" type="boolean" label="30008" help="30108">
+                    <level>0</level>
+                    <default>true</default>
+                    <control type="toggle"/>
+                </setting>
+                <setting id="show_token" type="action" label="30021" help="30121">
+                    <level>0</level>
+                    <data>RunScript(special://home/addons/service.sendspin/actions.py,show_token)</data>
+                    <constraints><allowempty>true</allowempty></constraints>
+                    <control type="button" format="action"><close>true</close></control>
+                </setting>
+                <setting id="forget_pairings" type="action" label="30022" help="30122">
+                    <level>0</level>
+                    <data>RunScript(special://home/addons/service.sendspin/actions.py,forget_pairings)</data>
+                    <constraints><allowempty>true</allowempty></constraints>
+                    <control type="button" format="action"><close>true</close></control>
+                </setting>
+            </group>
+        </category>
         <category id="sync" label="30010">
             <group id="1">
                 <setting id="auto_sync" type="boolean" label="30014" help="30114">

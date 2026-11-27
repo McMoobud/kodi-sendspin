@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.1.0, 2026-11-27
+- Encrypted Sendspin 1.0 connection (Noise `KKpsk2_25519_ChaChaPoly_SHA256`), in pure Python with faster backends when available (`cryptography`, or OpenSSL's libcrypto)
+- Works with current Music Assistant without "Allow legacy clients"
+- Plays without pairing ("guest access"), or pair with the pairing token (Settings > Security > Show pairing token)
+- New Connection setting: Automatic (encrypted, falls back to legacy), Encrypted only, Legacy only
+- A server refusing the connection is reported once instead of reconnecting silently forever
+- Auto-discovery listens on the mDNS port, so it also finds Music Assistant through an mDNS relay on another subnet, and skips advertised servers it cannot reach (for example a container's internal address)
+- Music Assistant 2.10's UUID `group_id` is accepted (the spec asks for base64url)
+- Clock sync uses the spec's time filter and bursts of 8 time probes
+- Encrypted wire: 13-byte audio header, `output_delay_ms`, full-state metadata, `stream/clear` with `from_timestamp`
+- `tools/build_repo.py` builds a Kodi repository for your own web server, so Kodi installs and updates the add-on from it
+- Music Assistant lists the encrypted player as a new device; the old legacy entry can be removed
+
 ## 1.0.3, 2026-10-13
 - A WebSocket message split into endless empty fragments is rejected (memory could grow without limit)
 - The audio queue has a hard size limit, so far-future audio from a misbehaving server cannot exhaust memory

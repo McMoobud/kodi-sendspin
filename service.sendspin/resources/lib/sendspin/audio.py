@@ -152,11 +152,15 @@ class AudioPipeline:
                  "continuous" if keep else "new")
         return self.generation, keep
 
-    def clear(self):
-        """Seek / skip: drop queued audio but keep Kodi's stream and the timeline."""
+    def clear(self, from_timestamp=None):
+        """Seek / skip: drop queued audio but keep Kodi's stream and the timeline.
+        With ``from_timestamp`` (server µs) only audio at or after it is dropped."""
         with self._cond:
-            self._chunks = deque()
-            self._queued = 0
+            if from_timestamp is None:
+                self._chunks = deque()
+            else:
+                self._chunks = deque(c for c in self._chunks if c[0] < from_timestamp)
+            self._queued = sum(len(c[1]) for c in self._chunks)
             self._cond.notify_all()
         log.info("stream clear (generation %d)", self.generation)
         return self.generation

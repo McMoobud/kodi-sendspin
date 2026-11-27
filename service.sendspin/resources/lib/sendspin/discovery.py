@@ -61,13 +61,47 @@ def _parse(data):
     return records
 
 
-def discover(timeout=3.0):
-    """Return a list of discovered server dicts: {name, url, host, port}."""
+def _open_socket():
+    """(socket, shared). Prefer listening on 5353 like a normal mDNS host: replies then come
+    by multicast, which mDNS relays between subnets forward. If the port cannot be shared,
+    fall back to a private port and ask for unicast replies (same subnet only)."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+    try:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        if hasattr(socket, "SO_REUSEPORT"):
+            try:
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+            except OSError:
+                pass
+        sock.bind(("", MDNS_PORT))
+        mreq = struct.pack("4s4s", socket.inet_aton(MDNS_ADDR), socket.inet_aton("0.0.0.0"))
+        sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
+        shared = True
+    except OSError as exc:
+        log.debug("cannot share mDNS port %d (%s) - asking for unicast replies", MDNS_PORT, exc)
+        sock.close()
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        shared = False
     sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 255)
     sock.settimeout(0.3)
-    query = struct.pack(">HHHHHH", random.randint(0, 0xFFFF), 0, 1, 0, 0, 0)
-    query += _encode_name(SERVICE) + struct.pack(">HH", T_PTR, 0x8001)  # QU bit: unicast reply
+    return sock, shared
+
+
+def reachable(server, timeout=1.5):
+    """True if the server's TCP port answers (an advertised address may be a container's)."""
+    try:
+        socket.create_connection((server["host"], server["port"]), timeout=timeout).close()
+        return True
+    except OSError:
+        return False
+
+
+def discover(timeout=3.0):
+    """Return a list of discovered server dicts: {name, url, host, port}."""
+    sock, shared = _open_socket()
+    query = struct.pack(">HHHHHH", 0 if shared else random.randint(0, 0xFFFF), 0, 1, 0, 0, 0)
+    # QM (multicast reply) from port 5353, else the QU bit asks for a unicast reply
+    query += _encode_name(SERVICE) + struct.pack(">HH", T_PTR, 0x0001 if shared else 0x8001)
     found = {"instances": set(), "srv": {}, "txt": {}, "addrs": {}}
     try:
         sock.sendto(query, (MDNS_ADDR, MDNS_PORT))

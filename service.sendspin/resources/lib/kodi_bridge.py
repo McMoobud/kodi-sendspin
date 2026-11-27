@@ -16,9 +16,10 @@ import xbmcvfs
 
 from sendspin import __version__
 from sendspin.audio import AudioPipeline, WavStreamServer
-from sendspin.client import Listener, SendspinClient
+from sendspin.client import MODE_AUTO, MODE_LEGACY, MODE_SECURE, Listener, SendspinClient
 from sendspin.clock import ClockSync, now_us
-from sendspin.discovery import discover
+from sendspin.discovery import discover, reachable
+from sendspin.identity import Identity
 
 ADDON = xbmcaddon.Addon()
 ADDON_ID = ADDON.getAddonInfo("id")
@@ -71,11 +72,23 @@ def _setting_int(key, default):
         return default
 
 
-def client_id():
-    """Stable per-installation id, stored in the add-on profile folder."""
+def profile_dir():
     profile = xbmcvfs.translatePath(ADDON.getAddonInfo("profile"))
     os.makedirs(profile, exist_ok=True)
-    path = os.path.join(profile, "client_id")
+    return profile
+
+
+def identity():
+    """Keypair (the encrypted wire's client id) and pairings, in the add-on profile folder."""
+    return Identity(profile_dir())
+
+
+CONNECTION_MODES = {0: MODE_AUTO, 1: MODE_SECURE, 2: MODE_LEGACY}
+
+
+def client_id():
+    """Stable per-installation id for the legacy wire, stored in the add-on profile folder."""
+    path = os.path.join(profile_dir(), "client_id")
     try:
         with open(path) as f:
             cid = f.read().strip()
@@ -162,6 +175,8 @@ class Bridge(Listener):
         self._last_skip_path = None
         self._last_skip_at = 0.0
         self._last_play_call = 0.0
+        self._refusals = 0  # in a row, reset on connect
+        self._told_refused = False
         self._sync_gen, self._sync_since, self._sync_samples, self._sync_last = None, 0.0, [], 0.0
         self._queue = queue.Queue()
         self._worker_thread = threading.Thread(target=self._worker, name="sendspin-kodi", daemon=True)
@@ -172,12 +187,15 @@ class Bridge(Listener):
         self.http.set_control_callback(self.on_remote_skip)
         self.http.start()
         self.url_prefix = "http://127.0.0.1:%d/stream/" % self.http.port
+        ident = identity()
+        mode = CONNECTION_MODES.get(_setting_int("connection", 0), MODE_AUTO)
         self.client = SendspinClient(
             server_url, client_id(), device_name(), self.pipeline, self,
             version=__version__, product="Kodi %s" % xbmc.getInfoLabel("System.BuildVersion").split(" ")[0],
+            identity=ident, mode=mode, unpaired_access=_setting_bool("unpaired_access", True),
         )
-        log.info("starting: name=%r id=%s url=%s http=%s", self.client.name, self.client.client_id,
-                 server_url, self.url_prefix)
+        log.info("starting: name=%r id=%s legacy id=%s mode=%s url=%s http=%s", self.client.name,
+                 ident.client_id, self.client.client_id, mode, server_url, self.url_prefix)
         self.client.start()
 
     def stop(self):
@@ -308,7 +326,23 @@ class Bridge(Listener):
         return self._output_running
 
     def on_connected(self, server_name):
+        self._refusals = 0
         self._post(notify, L(30200) % server_name)
+
+    def on_refused(self, reason, legacy):
+        # In Automatic mode one refusal is expected (the client then tries the other wire).
+        self._refusals += 1
+        automatic = self.client is not None and self.client.mode == MODE_AUTO
+        if self._told_refused or (automatic and self._refusals < 2):
+            return
+        self._told_refused = True
+        self._post(notify, L(30209) if legacy else L(30210) % reason, 10000)
+
+    def on_paired(self, server_name):
+        self._post(notify, L(30207) % server_name)
+
+    def on_unpaired(self, server_name):
+        self._post(notify, L(30208) % server_name)
 
     def on_disconnected(self):
         self._post(self._stop_kodi_player)
@@ -505,5 +539,8 @@ def resolve_server_url():
         servers = []
     if servers:
         log.info("discovered %s", servers)
-        return servers[0]["url"]
+        for server in servers:
+            if reachable(server):
+                return server["url"]
+            log.info("skipping unreachable %s", server["url"])
     return None

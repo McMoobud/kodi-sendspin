@@ -121,3 +121,83 @@ msgstr ""
 msgctxt "#30206"
 msgid "Previous track"
 msgstr ""
+
+msgctxt "#30007"
+msgid "Connection"
+msgstr ""
+
+msgctxt "#30107"
+msgid "Automatic uses the encrypted Sendspin connection and falls back to the old unencrypted one for servers that need it. Legacy only works while Music Assistant's Sendspin option \"Allow legacy clients\" is on."
+msgstr ""
+
+msgctxt "#30008"
+msgid "Allow playback without pairing"
+msgstr ""
+
+msgctxt "#30108"
+msgid "Music Assistant can play to this player as a guest without pairing. Turn off to require pairing first."
+msgstr ""
+
+msgctxt "#30020"
+msgid "Security"
+msgstr ""
+
+msgctxt "#30021"
+msgid "Show pairing token"
+msgstr ""
+
+msgctxt "#30121"
+msgid "Shows the token to paste in Music Assistant: player settings > Pair device > Pairing token."
+msgstr ""
+
+msgctxt "#30022"
+msgid "Forget pairings"
+msgstr ""
+
+msgctxt "#30122"
+msgid "Removes every pairing this player has made. Servers then see it as unpaired."
+msgstr ""
+
+msgctxt "#30030"
+msgid "Automatic"
+msgstr ""
+
+msgctxt "#30031"
+msgid "Encrypted only"
+msgstr ""
+
+msgctxt "#30032"
+msgid "Legacy (unencrypted) only"
+msgstr ""
+
+msgctxt "#30207"
+msgid "Paired with %s"
+msgstr ""
+
+msgctxt "#30208"
+msgid "%s removed its pairing"
+msgstr ""
+
+msgctxt "#30209"
+msgid "Music Assistant refused the unencrypted connection - turn on \"Allow legacy clients\" or use Automatic"
+msgstr ""
+
+msgctxt "#30210"
+msgid "Server refused the connection (%s)"
+msgstr ""
+
+msgctxt "#30211"
+msgid "Pairing token"
+msgstr ""
+
+msgctxt "#30212"
+msgid "In Music Assistant open this player's settings, choose Pair device > Pairing token and paste:[CR][CR][B]%s[/B][CR][CR]The token is also saved in %s"
+msgstr ""
+
+msgctxt "#30213"
+msgid "Forget all pairings? Servers will see this player as unpaired."
+msgstr ""
+
+msgctxt "#30214"
+msgid "Pairings removed"
+msgstr ""
